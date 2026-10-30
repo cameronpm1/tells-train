@@ -1033,3 +1033,191 @@ class FireParticleFilter(PredatorPreyParticleFilter):
             adjacent_to_red |= padded_red[1 + dr: 1 + dr + rows, 1 + dc: 1 + dc + cols]
 
         return int(np.sum(green_mask & adjacent_to_red))
+
+class MarketFilter:
+    '''
+    extended kalman filter over teammates' stockpiles and inverse conversion rates (1/k), the supplier state
+    (team stockpile, release mix) is a linear function of these so it is estimated through them
+    '''
+
+    def __init__(
+        self,
+        obs_map,
+        agent_name,
+        agent_start_pos: dict,
+        target_start_pos: list[float],
+        agent_control_function,
+        target_control_function,
+        agents: list[str],
+        presence: np.ndarray,
+        stock_init: float,
+        stock_cap: float,
+        rate_range: list[float],
+        obs_scale: float,
+        release_noise: float,
+        distributor_stock: float,
+        process_std: float = 0.05,
+        observation_std: float = 0.01,
+        target_confidence_scale: float = 1.0,
+    ):
+        from controllers.market_game_control import action_to_fractions
+
+        self.obs_map = obs_map
+        self.agent_name = agent_name
+        self.teammates = list(agent_start_pos.keys())
+        self.n_team = len(self.teammates)
+        self.dim = len(target_start_pos)
+        self.self_idx = list(agents).index(agent_name)
+        self.team_idx = [list(agents).index(name) for name in self.teammates]
+        self.agent_control_function = agent_control_function
+        self.target_control_function = target_control_function
+        self.action_to_fractions = action_to_fractions
+
+        self.presence = np.asarray(presence, dtype=float)
+        self.stock_init = stock_init
+        self.stock_cap = stock_cap
+        self.w_range = (1.0 / rate_range[1], 1.0 / rate_range[0])
+        self.scale = obs_scale
+        self.release_noise = release_noise
+        self.distributor_stock = distributor_stock
+        self.process_std = process_std
+        self.observation_std = observation_std
+        self.target_confidence_scale = target_confidence_scale
+
+        lo, hi = rate_range
+        self.w_mean = np.log(hi / lo) / (hi - lo)
+        self.w_var = (1.0 / lo - 1.0 / hi) / (hi - lo) - self.w_mean ** 2
+        self.reset(None)
+
+    def reset(
+        self,
+        obs: dict,
+    ):
+        n = self.n_team
+        self.x = np.concatenate((np.full(n, self.stock_init), np.full(n, self.w_mean)))
+        self.P = np.diag(np.concatenate((np.full(n, 1e-6), np.full(n, self.w_var))))
+        self.own_obs = None if obs is None else np.asarray(obs[self.agent_name], dtype=float)
+        self.release_est = None if self.own_obs is None else self._predicted_release(self.x, self.own_obs)
+
+    def propagate_all(self, current_obs):
+        # the release in current_obs is only read by update_observation, when the supplier is the observed agent
+        current_obs = np.asarray(current_obs, dtype=float)
+        if self.own_obs is not None:
+            self._predict(self.own_obs, current_obs)
+        self.own_obs = current_obs
+        self.release_est = self._predicted_release(self.x, current_obs)
+
+    def update_observation(
+        self,
+        agent_name: str,
+        observed_pos: np.ndarray,
+        measurement_std: float = None,
+    ):
+        n = self.n_team
+        std = self.observation_std if measurement_std is None else measurement_std
+        H = np.zeros((1, 2 * n))
+
+        if agent_name == 'target':
+            H[0, :n] = 1.0
+            z = np.array([observed_pos[0] / self.scale - self.own_obs[self.obs_map['self_stock']][0]])
+        else:
+            H[0, self.teammates.index(agent_name)] = 1.0
+            z = np.array([observed_pos[0]])
+
+        self._kalman_update(H, z, np.array([[std ** 2]]))
+        if agent_name == 'target':
+            self._release_update(self.own_obs)
+            self.release_est = self.own_obs[self.obs_map['release']][0]
+
+    def get_observation(
+        self,
+    ):
+        own_pos = self.own_obs[self.obs_map['self_pos']]
+        cov = np.sqrt(np.diag(self.P))
+        obs = {}
+        for j, name in enumerate(self.teammates):
+            obs[name] = {
+                'pos': self.x[j:j + 1] + own_pos,
+                'confidence': 1.0 / cov[j],
+            }
+
+        stock_row = np.concatenate((np.ones(self.n_team), np.zeros(self.n_team)))
+        _, release_row = self._release_jacobian(self.own_obs)
+        stock_std = np.sqrt(stock_row @ self.P @ stock_row / self.n_team)
+        release_std = np.sqrt((release_row @ self.P @ release_row.T).item())
+        obs['target'] = {
+            'pos': np.array([self.release_est]) + own_pos,
+            'confidence': self.target_confidence_scale / max(stock_std, release_std),
+        }
+
+        return obs
+
+    def _all_states(self, x, own):
+        stocks = np.empty(self.n_team + 1)
+        rates = np.empty(self.n_team + 1)
+        stocks[self.self_idx] = own[self.obs_map['self_stock']][0]
+        rates[self.self_idx] = own[self.obs_map['self_rate']][0]
+        stocks[self.team_idx] = x[:self.n_team]
+        rates[self.team_idx] = 1.0 / x[self.n_team:]
+        return stocks, rates
+
+    def _predict(self, last_obs, current_obs):
+        n = self.n_team
+        stocks, rates = self._all_states(self.x, last_obs)
+        orders, sells = np.zeros(n), np.zeros(n)
+
+        for j, idx in enumerate(self.team_idx):
+            others = [i for i in range(n + 1) if i != idx]
+            teammate_obs = last_obs.copy()
+            teammate_obs[self.obs_map['self_stock']] = stocks[idx]
+            teammate_obs[self.obs_map['self_rate']] = rates[idx]
+            teammate_obs[self.obs_map['team_stock']] = stocks[others]
+            teammate_obs[self.obs_map['release']] = self.release_est
+            orders[j], sells[j] = self.action_to_fractions(self.agent_control_function(teammate_obs, self.obs_map, rates[others]))
+
+        release = self.release_est
+        received = orders * release
+        available = max(release - current_obs[self.obs_map['self_received']][0], 0.0)
+        if received.sum() > available:
+            received *= available / max(received.sum(), 1e-8)
+
+        self.x[:n] = (1.0 - sells) * np.minimum(self.x[:n] + received, self.stock_cap)
+        F = np.diag(np.concatenate((1.0 - sells, np.ones(n))))
+        self.P = F @ self.P @ F.T + np.diag(np.concatenate((np.full(n, self.process_std ** 2), np.zeros(n))))
+
+    def _predicted_release(self, x, own):
+        stocks, rates = self._all_states(x, own)
+        n_distributors = self.presence.shape[0]
+        supplier_obs = np.concatenate((
+            [stocks.sum() * self.scale],
+            self.presence @ (1.0 / rates),
+            [own[self.obs_map['demand']][0] * self.scale],
+            np.full(n_distributors, self.distributor_stock),
+        ))
+        return self.target_control_function(supplier_obs, self.obs_map).sum() / self.scale
+
+    def _release_jacobian(self, own, eps: float = 1e-4):
+        predicted = self._predicted_release(self.x, own)
+        H = np.zeros((1, 2 * self.n_team))
+        for i in range(2 * self.n_team):
+            x = self.x.copy()
+            x[i] += eps
+            H[0, i] = (self._predicted_release(x, own) - predicted) / eps
+        return predicted, H
+
+    def _release_update(self, own):
+        predicted, H = self._release_jacobian(own)
+        _, rates = self._all_states(self.x, own)
+        demand = own[self.obs_map['demand']][0]
+        std = self.release_noise * np.mean(1.0 / rates) * demand / np.sqrt(self.presence.shape[0]) + 1e-3
+        self._kalman_update(H, np.array([own[self.obs_map['release']][0] - predicted]), np.array([[std ** 2]]), innovation=True)
+
+    def _kalman_update(self, H, z, R, innovation: bool = False):
+        y = z if innovation else z - H @ self.x
+        S = H @ self.P @ H.T + R
+        K = self.P @ H.T @ np.linalg.inv(S)
+        self.x = self.x + K @ y
+        self.P = (np.eye(len(self.x)) - K @ H) @ self.P
+        self.P = 0.5 * (self.P + self.P.T)
+        self.x[:self.n_team] = np.clip(self.x[:self.n_team], 0.0, self.stock_cap)
+        self.x[self.n_team:] = np.clip(self.x[self.n_team:], *self.w_range)

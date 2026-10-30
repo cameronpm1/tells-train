@@ -39,6 +39,8 @@ from controllers.fire_control import extinguish_controller
 from controllers.football_control import compute_rondo_actions
 from controllers.predator_prey_control import compute_slot_actions
 from controllers.predator_prey_swarm_control import compute_slot_actions as compute_swarm_slot_actions
+from controllers.market_game_control import compute_market_actions
+from controllers.market_game_large_control import compute_market_actions as compute_large_market_actions
 from learn.marl.callbacks import CurriculumCallback, LogRawEpisodeReturn
 
 from evals.belief.eval import load_model
@@ -186,6 +188,10 @@ def _collect_controller_dataset(cfg: dict, episodes: int):
                 expert_actions = compute_rondo_actions(obs,env.unwrapped.obs_map)
             elif 'fire' in cfg['env']['scenario']:
                 expert_actions = extinguish_controller(infos['__common__']['decomposed_obs'])
+            elif 'market_game_large' in cfg['env']['scenario']:
+                expert_actions = compute_large_market_actions(obs, env.unwrapped.obs_map, env.unwrapped.controller_cfg)
+            elif 'market' in cfg['env']['scenario']:
+                expert_actions = compute_market_actions(obs, env.unwrapped.obs_map, env.unwrapped.controller_cfg)
 
             predator_obs = {
                 agent: np.asarray(obs[agent], dtype=np.float32).copy()

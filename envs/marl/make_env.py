@@ -7,7 +7,7 @@ from evals.marl.observation_packaging import *
 from envs.marl.drones_env import CaravanAviary
 from envs.marl.rllib_wrapper import RLLibWrapper
 from envs.marl.predator_prey_env import PredatorPreyEnv, parallel_env
-from envs.marl.particle_filters import PredatorPreyParticleFilter, DronesParticleFilter, FootballParticleFilter, FireParticleFilter
+from envs.marl.particle_filters import PredatorPreyParticleFilter, DronesParticleFilter, FootballParticleFilter, FireParticleFilter, MarketFilter
 
 def make_marl_env(
         config: dict,
@@ -46,7 +46,13 @@ def make_marl_env(
 
     elif 'fire' in env_name:
         return make_fire_env(config,seed,wrap,eval,render_mode,belief_kwargs)
-    
+
+    elif 'market_game_large' in env_name:
+        return make_market_game_large_env(config,seed,wrap,eval,render_mode,belief_kwargs)
+
+    elif 'market' in env_name:
+        return make_market_game_env(config,seed,wrap,eval,render_mode,belief_kwargs)
+
     else:
         raise NotImplementedError(f'Env {env_name} not implemented yet')
 
@@ -364,5 +370,131 @@ def make_fire_env(
         pass
     else:
         print('Wrapper not supported for fire env...')
+
+    return env
+
+def make_market_game_env(
+        config: dict,
+        seed: Optional[int] = None,
+        wrap: Optional[str] = 'rllib',
+        eval: bool = False,
+        render_mode: Optional[str] = None,
+        belief_kwargs: Optional[dict] = None,
+):
+    '''
+    initialize market_game_env
+
+    input
+    -----
+    config_dir:dict
+        config dictionary
+    seed:int
+        seed
+    wrap:bool
+        if True wraps env in rllib wrapper
+    '''
+    from controllers.market_game_control import supplier_controller, compute_market_actions
+    from envs.marl.market_game_env import MarketGameEnv
+
+    env = MarketGameEnv(
+        agents=config['env']['learned_agent_list'],
+        supplier_controller=supplier_controller,
+        market_kwargs=config['env']['market_kwargs'],
+        supplier_kwargs=config['env']['supplier_kwargs'],
+        reward_kwargs=config['env'].get('reward_kwargs'),
+        controller_kwargs=config['env'].get('controller_kwargs'),
+        max_episode_length=config['env']['max_episode_length'],
+        seed=seed,
+    )
+
+    if wrap == 'rllib':
+        env = RLLibWrapper(
+            env=env,
+            name='market_game',
+            obs_packaging_func=market_game_obs_packaging,
+            eval=eval,
+            dimension=1,
+            belief_kwargs=belief_kwargs,
+            noise=config['env']['noise'],
+        )
+    elif wrap == 'pf':
+        market_env = env
+        env = PFWrapper(
+            env,
+            name='market_game',
+            particle_filter = MarketFilter,
+            agent_control_function = lambda obs, obs_map, team_rates=None: compute_market_actions(obs, obs_map, market_env.controller_cfg, team_rates),
+            target_control_function = lambda obs, obs_map: supplier_controller(obs, obs_map, market_env.supplier_cfg),
+            dim=1,
+            eval=eval,
+            belief_kwargs={
+                **config['env']['belief_kwargs'],
+                'agents': market_env.agents,
+                'presence': market_env.presence,
+                'stock_init': market_env.market_cfg['stock_cap'] / 2.0 / market_env.scale,
+                'stock_cap': market_env.market_cfg['stock_cap'] / market_env.scale,
+                'rate_range': market_env.market_cfg['rate_range'],
+                'obs_scale': market_env.scale,
+                'release_noise': market_env.supplier_cfg['noise'],
+                'distributor_stock': market_env.supplier_cfg['own_stock_init'] / market_env.n_distributors,
+            },
+            noise=config['env']['noise'],
+        )
+    elif wrap is None:
+        pass
+    else:
+        print('Wrapper not supported for market game env...')
+
+    return env
+
+def make_market_game_large_env(
+        config: dict,
+        seed: Optional[int] = None,
+        wrap: Optional[str] = 'rllib',
+        eval: bool = False,
+        render_mode: Optional[str] = None,
+        belief_kwargs: Optional[dict] = None,
+):
+    '''
+    initialize market_game_large_env
+
+    input
+    -----
+    config_dir:dict
+        config dictionary
+    seed:int
+        seed
+    wrap:bool
+        if True wraps env in rllib wrapper
+    '''
+    from controllers.market_game_large_control import supplier_controller
+    from envs.marl.market_game_large_env import MarketGameLargeEnv
+
+    env = MarketGameLargeEnv(
+        agents=config['env']['learned_agent_list'],
+        supplier_controller=supplier_controller,
+        market_kwargs=config['env']['market_kwargs'],
+        supplier_kwargs=config['env']['supplier_kwargs'],
+        reward_kwargs=config['env'].get('reward_kwargs'),
+        controller_kwargs=config['env'].get('controller_kwargs'),
+        max_episode_length=config['env']['max_episode_length'],
+        seed=seed,
+        quantiles=config['env']['quantiles'],
+    )
+
+    if wrap == 'rllib':
+        env = RLLibWrapper(
+            env=env,
+            name='market_game_large',
+            obs_packaging_func=market_game_obs_packaging,
+            eval=eval,
+            dimension=1,
+            belief_kwargs=belief_kwargs,
+            noise=config['env']['noise'],
+        )
+    elif wrap is None:
+        pass
+    else:
+        print('Wrapper not supported for large market game env...')
 
     return env

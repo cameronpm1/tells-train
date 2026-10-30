@@ -1,0 +1,78 @@
+seed: &seed 23 # set experiment seed
+horizon: &horizon 10
+min_obs: 10
+logdir: logs/marl/market_game_7a_fully_obs
+notes: market game (equal split), 7 companies vs 1 supplier, teammates' stockpiles observed with noise
+
+alg:
+  type : ppo
+  lr : 0.00003
+  gamma: 0.99
+  nenvs : 4
+  cpu_envs: 2
+  target_ent: 0.1
+  batch: 4096
+  batch_size: 256
+  num_gpus: 0
+  pi : [256, 256, 256]
+  vf : [256, 256, 256]
+  timesteps: 3000
+  checkpoint_freq: 250
+  minibatch_size: 512
+  num_epochs: 3
+  lambda: 0.95
+  entropy_coeff: 0.0
+  clip_param: 0.05
+  vf_clip_param: 10.0
+  grad_clip: 0.25
+  pretrain:
+    enabled: true
+    episodes: 300
+    epochs: 28
+    batch_size: 1024
+    lr: 0.0005
+    value_loss_coef: 0.02
+    grad_clip: 1.0
+    eval_runs: 50
+
+env:
+  scenario: market_game
+  max_episode_length: 200
+  agent_list: ['target', 'agent0', 'agent1', 'agent2', 'agent3', 'agent4', 'agent5', 'agent6']
+  learned_agent_list: ['agent0', 'agent1', 'agent2', 'agent3', 'agent4', 'agent5', 'agent6']
+  belief: false
+  render_mode: rgb_array
+  noise:
+    team: [0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
+    target: 0.0
+  market_kwargs:
+    rho: 0.65
+    mean_demand: 233.33
+    demand_phi: 0.9
+    demand_noise: 23.33
+    rate_range: [0.4, 1.6]
+    stock_cap: 240.0
+    min_stock: 2.0
+    random_fill: true
+    obs_scale: 100.0
+  supplier_kwargs:
+    n_distributors: 1
+    cartel: copies
+    stock_cut_frac: 0.1
+    eta: 1.0
+    max_cut_frac: 0.5
+    noise: 0.1
+    own_stock_gain: 0.1
+    own_stock_init: 500.0
+    region_seed: 0
+  controller_kwargs:
+    healthy_stock: 1026.67
+    kappa: 0.3
+    margin: 0.1
+    balance_gain: 0.2
+  reward_kwargs:
+    reward_scale: 0.004286
+    early_end_penalty: 2333.33
+    bc_scale: 1.25
+
+policy_list: ['agent0']

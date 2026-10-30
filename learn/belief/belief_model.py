@@ -258,7 +258,7 @@ class BeliefModel(pl.LightningModule):
             self.loss_func = self.model.loss #torch.nn.MSELoss()
             self.val_loss_func = self.model.val_loss
             self.vae = True
-        if self.hparams.model_name in ['football_NN', 'predator_prey_swarm_NN']:
+        if self.hparams.model_name in ['football_NN', 'predator_prey_swarm_NN', 'market_game_large_NN']:
             self.model = football_NN(self.hparams.input_channels,self.hparams.output_channels)
             self.loss_func = self.model.loss
             self.val_loss_func = self.model.val_loss
@@ -282,6 +282,11 @@ class BeliefModel(pl.LightningModule):
                 num_frames=self.hparams.num_frames,
                 num_classes=self.hparams.num_classes,
             )
+            self.loss_func = self.model.loss
+            self.val_loss_func = self.model.val_loss
+            self.vae = False
+        if self.hparams.model_name == 'market_game_NN':
+            self.model = market_game_NN(self.hparams.input_channels,self.hparams.output_channels)
             self.loss_func = self.model.loss
             self.val_loss_func = self.model.val_loss
             self.vae = False

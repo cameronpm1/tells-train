@@ -35,6 +35,7 @@ from util.util import mkdir, load_config
 from envs.marl.make_env import make_marl_env
 from envs.marl.rllib_wrapper import RLLibWrapper
 from controllers.predator_prey_control import compute_slot_actions
+from controllers.market_game_control import compute_market_actions
 from learn.marl.callbacks import CurriculumCallback, LogRawEpisodeReturn
 
 try:
@@ -175,6 +176,8 @@ def _collect_controller_dataset(cfg: dict, episodes: int):
                 expert_actions = compute_rondo_actions(obs,env.unwrapped.obs_map)
             elif 'fire' in cfg['env']['scenario']:
                 expert_actions = extinguish_controller(infos['__common__']['decomposed_obs'])
+            elif 'market' in cfg['env']['scenario']:
+                expert_actions = compute_market_actions(obs, env.unwrapped.obs_map, env.unwrapped.controller_cfg)
 
             predator_obs = {
                 agent: np.asarray(obs[agent], dtype=np.float32).copy()

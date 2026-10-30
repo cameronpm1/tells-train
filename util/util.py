@@ -6,6 +6,19 @@ import imageio
 import numpy as np
 
 def mkdir(folder):
+    if os.path.islink(folder):
+        # keep the symlink, clear the contents of its target
+        target = os.path.realpath(folder)
+        if os.path.isdir(target):
+            for entry in os.listdir(target):
+                path = os.path.join(target, entry)
+                if os.path.isdir(path) and not os.path.islink(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+        else:
+            os.makedirs(target)
+        return
     if os.path.exists(folder):
         shutil.rmtree(folder)
     os.makedirs(folder)
@@ -30,10 +43,12 @@ def save_argb_video(images, output_path, fps=30):
 
     out.release()
 
-def save_rgb_gif(images, output_path, fps=10):
+def save_rgb_gif(images, output_path, fps=10, loop=None):
+    '''loop: number of times the gif repeats (0 = forever); None writes no loop setting, so viewers play it once'''
 
     duration = 1 / fps  # seconds per frame
-    imageio.mimsave(output_path, images, duration=duration)
+    kwargs = {} if loop is None else {'loop': loop}
+    imageio.mimsave(output_path, images, duration=duration, **kwargs)
 
 def save_cv2_images_as_gif(images, output_path, fps=60):
     """

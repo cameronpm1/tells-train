@@ -468,7 +468,11 @@ class CirclePass5v1Env(gym.Env):
 
         return frame.astype(np.uint8)
 
-    def render_rgb(self, width=1280, height=720, obs_index=0):
+    def render_rgb(self, width=1280, height=720, obs_index=0, bounds=None):
+        '''
+        bounds: optional (x_min, x_max, y_min, y_max) view in pitch coordinates, drawn edge to
+        edge; when None the whole pitch is shown with a pixel margin around it
+        '''
 
         obs_i = self.raw_obs[obs_index]
 
@@ -483,9 +487,14 @@ class CirclePass5v1Env(gym.Env):
 
         ball = np.asarray(obs_i["ball"][:2], dtype=np.float32)
 
-        x_min, x_max = -1.05, 1.05
-        y_min, y_max = -0.45, 0.45
-        margin = 40
+        pitch_x, pitch_y = 1.05, 0.45
+        if bounds is None:
+            x_min, x_max = -pitch_x, pitch_x
+            y_min, y_max = -pitch_y, pitch_y
+            margin = 40
+        else:
+            x_min, x_max, y_min, y_max = (float(b) for b in bounds)
+            margin = 0
 
         img = Image.new("RGB", (width, height), (35, 120, 45))
         draw = ImageDraw.Draw(img)
@@ -564,22 +573,25 @@ class CirclePass5v1Env(gym.Env):
             if label is not None:
                 draw.text((px + 14, py - 10), str(label), fill=(255, 255, 255))
 
-        # Field boundary.
+        # Field boundary, in pitch coordinates so it stays put when bounds zoom the view.
         draw.rectangle(
-            [margin, margin, width - margin, height - margin],
+            [to_px([-pitch_x, -pitch_y]), to_px([pitch_x, pitch_y])],
             outline=(255, 255, 255),
             width=3,
         )
 
-        # Center line and circle.
+        # Center line and circle. The circle radius is fixed in pitch units (70px in the default
+        # 1280px full-pitch view) and scaled with the horizontal zoom.
         cx, cy = to_px([0.0, 0.0])
         draw.line(
-            [(cx, margin), (cx, height - margin)],
+            [to_px([0.0, -pitch_y]), to_px([0.0, pitch_y])],
             fill=(255, 255, 255),
             width=2,
         )
+        circle_r = 70 * (2 * pitch_x) / (1280 - 80)
+        r_px = circle_r / (x_max - x_min) * (width - 2 * margin)
         draw.ellipse(
-            [cx - 70, cy - 70, cx + 70, cy + 70],
+            [cx - r_px, cy - r_px, cx + r_px, cy + r_px],
             outline=(255, 255, 255),
             width=2,
         )

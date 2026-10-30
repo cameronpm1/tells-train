@@ -305,6 +305,50 @@ def predator_prey_swarm_obs_packaging(
 
     return obs_dict, _transform_predator_prey_swarm_pred
 
+def market_game_obs_packaging(
+        obs_history,
+        obs_map,
+        agent_list,
+        min_obs=10,
+        noise: Optional[dict] = None
+    ):
+
+    obs_dict = {}
+
+    for agent in agent_list:
+        market_obs = []
+
+        for i in range(min_obs):
+            idx = min_obs - i
+            if idx >= len(obs_history):
+                idx = -1
+            else:
+                idx *= -1
+
+            obs_ts = obs_history[idx][agent]
+            market_obs.append(np.concatenate((obs_ts[obs_map['self']], obs_ts[obs_map['target']])))
+
+        team_obs = obs_history[-1][agent][obs_map['team']]
+        if len(obs_history) > 1:
+            last_team_obs = obs_history[-2][agent][obs_map['team']]
+        else:
+            last_team_obs = deepcopy(team_obs)
+
+        if noise is not None and agent in noise:
+            team_noise = noise[agent]['team']
+            team_noise_old = noise[agent]['team_old']
+        else:
+            team_noise = np.zeros_like(team_obs)
+            team_noise_old = np.zeros_like(last_team_obs)
+
+        data_point = {}
+        data_point['input'] = np.concatenate((np.array(market_obs).flatten(),last_team_obs))
+        data_point['label'] = np.concatenate((last_team_obs - team_noise_old,team_obs - team_noise))
+
+        obs_dict[agent] = data_point
+
+    return obs_dict, _transform_market_game_pred
+
 
 
 def _transform_predator_prey_pred(obs, obs_map, agent, prediction):
@@ -314,6 +358,12 @@ def _transform_predator_prey_pred(obs, obs_map, agent, prediction):
     return obs
 
 def _transform_predator_prey_swarm_pred(obs, obs_map, agent, prediction):
+
+    obs[agent][obs_map['team']] = prediction[obs_map['team'].stop - obs_map['team'].start:]
+
+    return obs
+
+def _transform_market_game_pred(obs, obs_map, agent, prediction):
 
     obs[agent][obs_map['team']] = prediction[obs_map['team'].stop - obs_map['team'].start:]
 

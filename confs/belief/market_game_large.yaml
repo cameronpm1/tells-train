@@ -1,0 +1,18 @@
+lr: 0.00005
+seed: 2
+if_cuda: True
+gamma: 0.5
+log_dir: 'logs/belief/'
+label: '1'
+train_batch: 256
+val_batch: 256
+test_batch: 256
+num_workers: 15
+num_gpus: 1
+model_name: 'market_game_large_NN'
+input_channels: 85
+output_channels: 10
+data_dir: 'data/'
+data_name: 'market_game_large_60a_fully_obs'
+lr_schedule: [200, 500, 1000, 2000, 3000]
+epochs: 4000

@@ -403,25 +403,7 @@ class DroneFireEnv(gymnasium.Env):
         drone always gets the same DRONE_COLORS entry here as it does in
         the overlay plots
         '''
-        fig, ax = plt.subplots(figsize=(6, 6), dpi=100)
-
-        _draw_fire_grid(ax, self.env.fire_state)
-
-        for idx, drone in enumerate(sorted(self.agents)):
-            row, col = self.env.drone_states[drone]
-            color = DRONE_COLORS[idx % len(DRONE_COLORS)]
-            _draw_drone_icon(ax, (col, row), color, zorder=4)
-
-        ax.set_xlim(-0.5, GRID_SIZE - 0.5)
-        ax.set_ylim(GRID_SIZE - 0.5, -0.5)
-        ax.set_aspect('equal')
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
-
-        fig.canvas.draw()
-        frame = np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy()
-        plt.close(fig)
-
-        return frame
+        return render_fire_frame(self.env.fire_state, self.env.drone_states)
 
     def decompose_reward(
         self,
@@ -747,6 +729,39 @@ def _draw_drone_icon(ax, center, color, size: float = 1.1, alpha: float = 1.0, z
                  alpha=alpha, zorder=zorder, solid_capstyle='round')
         ax.add_patch(Circle(tip, rotor_radius, facecolor='none', edgecolor=color,
                              linewidth=rotor_linewidth, alpha=alpha, zorder=zorder + 0.1))
+
+
+def render_fire_frame(fire_state, drone_states: dict, bounds: Optional[tuple] = None):
+    '''
+    draw a fire grid and drone icons (see DroneFireEnv.render_rgb) to an RGB frame
+
+    fire_state: (GRID_SIZE, GRID_SIZE) grid of DroneFireSim cell values
+    drone_states: drone name -> (row, col)
+    bounds: optional (col_min, col_max, row_min, row_max) view in cell coordinates; when
+        None the whole grid is shown
+    '''
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=100)
+
+    _draw_fire_grid(ax, fire_state)
+
+    for idx, drone in enumerate(sorted(drone_states)):
+        row, col = drone_states[drone]
+        color = DRONE_COLORS[idx % len(DRONE_COLORS)]
+        _draw_drone_icon(ax, (col, row), color, zorder=4)
+
+    if bounds is None:
+        bounds = (-0.5, GRID_SIZE - 0.5, -0.5, GRID_SIZE - 0.5)
+    col_min, col_max, row_min, row_max = bounds
+    ax.set_xlim(col_min, col_max)
+    ax.set_ylim(row_max, row_min)
+    ax.set_aspect('equal')
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+    fig.canvas.draw()
+    frame = np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy()
+    plt.close(fig)
+
+    return frame
 
 
 def render_fire_with_drones(env, save_path="test.png"):

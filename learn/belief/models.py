@@ -351,6 +351,36 @@ class drones_NN(nn.Module):
 
 		return x
 
+class market_game_NN(nn.Module):
+
+	def __init__(self,
+                input_channels:int,
+                output_channels:int,
+				p_mc_dropout = 0.5) :
+
+		super().__init__()
+
+		self.loss = MarketGamePermutationInvariantMSE()
+		self.val_loss = MarketGamePermutationInvariantMSE()
+
+		self.p_mc_dropout = p_mc_dropout
+
+		self.linear1 = nn.Linear(input_channels,128)
+		self.linear2 = nn.Linear(128,256)
+		self.linear3 = nn.Linear(256,128)
+		self.linear4 = nn.Linear(128,64)
+		self.linear5 = nn.Linear(64,output_channels)
+
+	def forward(self, x):
+
+		x = nn.functional.relu(self.linear1(x))
+		x = nn.functional.relu(self.linear2(x))
+		x = nn.functional.relu(self.linear3(x))
+		x = nn.functional.relu(self.linear4(x))
+		x = self.linear5(x)
+
+		return x
+
 class PredPreyPermutationInvariantMSE(nn.Module):
 
 	def __init__(
@@ -384,6 +414,31 @@ class PredPreyPermutationInvariantMSE(nn.Module):
 		loss = torch.min(loss1, loss2).sum(dim=1)
 
 		return loss.mean()
+
+
+class MarketGamePermutationInvariantMSE(nn.Module):
+
+	def __init__(
+			self,
+			num_frames: int = 2,
+		):
+		super().__init__()
+		self.num_frames = num_frames
+
+	def forward(self, pred, target):
+		return self.permutation_invariant_loss(pred, target)
+
+	def permutation_invariant_loss(self, pred, target):
+		"""
+		pred:   (batch, num_frames * n_team)
+		target: (batch, num_frames * n_team)
+		"""
+		# each frame picks its own teammate assignment, as in PredPreyPermutationInvariantMSE. with one
+		# scalar (stockpile) per teammate the optimal assignment is the sorted order, so no search is needed
+		pred = pred.view(pred.shape[0], self.num_frames, -1).sort(dim=2).values
+		target = target.view(target.shape[0], self.num_frames, -1).sort(dim=2).values
+
+		return ((pred - target) ** 2).sum(dim=2).sum(dim=1).mean()
 
 
 class PredPreyPermutationInvariantVAEMSE(nn.Module):

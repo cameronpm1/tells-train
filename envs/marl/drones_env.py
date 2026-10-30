@@ -746,7 +746,7 @@ class CaravanAviary(BaseRLAviary):
 
         return rgb
 
-    def render_rgb(self):
+    def render_rgb(self, bounds: Optional[tuple] = None):
         """
         Custom 2D top-down RGB renderer.
 
@@ -755,6 +755,10 @@ class CaravanAviary(BaseRLAviary):
             - protector drones as blue quadrotor symbols
             - target/adversary drone as a red quadrotor symbol
             - altitude by slight drone size changes
+
+        Args:
+            bounds: optional fixed (xmin, xmax, ymin, ymax) view in world units; when None
+                the view is fit to the boxes and drones every frame
 
         Returns
         -------
@@ -788,9 +792,12 @@ class CaravanAviary(BaseRLAviary):
             box_pos[:, 1] + hy,
         ])
 
-        pad = max(2.0, float(self.target_spawn_distance) * 0.25)
-        xmin, xmax = float(np.min(all_x) - pad), float(np.max(all_x) + pad)
-        ymin, ymax = float(np.min(all_y) - pad), float(np.max(all_y) + pad)
+        if bounds is not None:
+            xmin, xmax, ymin, ymax = (float(b) for b in bounds)
+        else:
+            pad = max(2.0, float(self.target_spawn_distance) * 0.25)
+            xmin, xmax = float(np.min(all_x) - pad), float(np.max(all_x) + pad)
+            ymin, ymax = float(np.min(all_y) - pad), float(np.max(all_y) + pad)
 
         # Keep aspect ratio square so distances do not visually distort.
         xmid = 0.5 * (xmin + xmax)
