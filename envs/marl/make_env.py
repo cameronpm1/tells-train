@@ -290,7 +290,8 @@ def make_football_env(
             name='football',
             obs_packaging_func=football_obs_packaging,
             eval=eval,
-            belief_kwargs=belief_kwargs
+            belief_kwargs=belief_kwargs,
+            noise=config['env'].get('noise'),  # zero in every football config; the noise sweep sets noise.target
         )
     elif wrap == 'pf':
         env = PFWrapper(

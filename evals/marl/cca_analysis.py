@@ -574,6 +574,76 @@ def action_metrics(dirs, n_boot, seed, workers):
             {f'actions/{m}/{n}': boot[m][:, i] for m in boot for i, n in enumerate(names)})
 
 
+# ---------------------------------------------------------------- belief-noise sweep
+
+def weighted_coverage(s, F, eig):
+    """Eigenvalue-weighted mean of the raw R^2 along the task directions: sum_k sigma_k^2 R_k^2 / sum_k sigma_k^2."""
+    err = s['zh'] - s['z']
+    r = np.array([r2_along(err @ F[:, [k]], s['z'] @ F[:, [k]]) for k in range(F.shape[1])])
+    return float((eig * r).sum() / eig.sum()), r
+
+
+def fire_latent_scale(workers=48, device='cuda', limit=None):
+    """Scale of the fire latent-noise sweep: the mean per-unit std of the policy's conv latent of the true image on
+    the fully-observed data (units that never activate dropped). Noise sigma = level x this, in the evaluation
+    (belief_noise_sweep.py --latent) and in the analysis (run_sweep)."""
+    SPEC.update(ENVS['fire'])
+    d = os.path.join(SPEC['checkpoint'], CHECKPOINT_FOLDERS['fully_obs'])
+    eps = load_fire_raw(d, workers, 200, limit, True)
+    model, encoder = load_fire_policy(SPEC['checkpoint'], device)
+    return float(fire_sets(eps, d, True, model, encoder, device)['z'].std(0).mean())
+
+
+def run_sweep(runs, fo_dir, args):
+    """Weighted task coverage and success for each run (label=results_dir), all on the FO task directions.
+    Fire (latent state): a run labelled 'allocentric:<level>' had noise of std level x fire_latent_scale() added to
+    the policy's latent during evaluation, so the same noise is added to its received latent here (independent
+    draws: the R^2 is the same in expectation)."""
+    latent = SPEC.get('latent')
+    if latent:
+        raw_fo = load_fire_raw(fo_dir, args.workers, args.max_steps, args.limit_episodes, True)
+        raw_runs = [load_fire_raw(d, args.workers, args.max_steps, args.limit_episodes, False) for _, d in runs]
+        model, encoder = load_fire_policy(os.path.dirname(fo_dir.rstrip('/')), args.device)
+        fo = fire_sets(raw_fo, fo_dir, True, model, encoder, args.device)
+        scale = float(fo['z'].std(0).mean())
+    else:
+        fo = load_method(fo_dir, args.workers, args.max_steps, args.limit_episodes, with_y=True)
+    r_ref, F, eig_all, _ = axes({'fully_obs': fo}, args.min_eig)
+    eig = eig_all[:r_ref]
+    rng = np.random.default_rng(args.seed)
+    out = {'task_eig': eig.tolist(), 'runs': {}}
+    for i, (label, d) in enumerate(runs):
+        if latent:
+            s = fire_sets(raw_runs[i], d, False, model, encoder, args.device)
+            # only the latent-noise runs need noise added here; image-noise runs already carry it in their images
+            level = float(label.split(':')[1]) if label.startswith('allocentric') and '_latent' in d else 0.0
+            s['zh'] = s['zh'] + level * scale * rng.standard_normal(s['zh'].shape)
+        else:
+            s = load_method(d, args.workers, args.max_steps, args.limit_episodes)
+        wc, r = weighted_coverage(s, F, eig)
+        rows = episode_rows(s['ep'])
+        boot = []
+        for _ in range(args.n_boot):
+            idx = np.concatenate([rows[i] for i in rng.integers(len(rows), size=len(rows))])
+            boot.append(weighted_coverage({k: s[k][idx] for k in ('z', 'zh')}, F, eig)[0])
+        with Pool(args.workers) as pool:
+            ep = np.array(pool.map(episode_actions, episode_files(d, args.limit_episodes)), dtype=float)
+        succ = ep[:, 2]
+        succ_boot = [succ[rng.integers(len(succ), size=len(succ))].mean() for _ in range(args.n_boot)]
+        if latent:  # only the teammate centroid has a physical meaning outside the latent
+            t, h = teammates(s)
+            physical = {'centroid': r2_along(centroid(h) - centroid(t), centroid(t))}
+        else:
+            B = physical_bases(s['z'])
+            err = s['zh'] - s['z']
+            physical = {g: r2_along(err @ Bg, s['z'] @ Bg) for g, Bg in B.items()}
+        out['runs'][label] = dict(dir=d, weighted_coverage=wc, physical=physical, weighted_coverage_ci=np.percentile(boot, [2.5, 97.5]).tolist(),
+                                  task_r2=r.tolist(), success_rate=float(succ.mean()),
+                                  success_ci=np.percentile(succ_boot, [2.5, 97.5]).tolist(), n_episodes=len(succ))
+        print(f'{label}: weighted coverage {wc:.3f}, success {succ.mean():.3f} ({len(succ)} episodes)', flush=True)
+    return out
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -590,6 +660,9 @@ def main():
                    help='checkpoint folder holding results/, results_allocentric/, results_pf/ '
                         '(default: the final checkpoint in ENVS)')
     p.add_argument('--device', default='cuda', help='fire only: device for the policy encoder')
+    p.add_argument('--sweep', nargs='+', default=None, metavar='LABEL=RESULTS_DIR',
+                   help='belief-noise sweep: weighted task coverage and success of each results folder on the '
+                        'fully-observed task directions; writes sweep.json to --out-dir')
     p.add_argument('--figdata-only', action='store_true',
                    help='only rewrite episode_r2.npz, projections.npz and centroid.npz '
                         '(no bootstrap, keeps the existing summary)')
@@ -600,6 +673,14 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     data_dir = args.data_dir or SPEC['checkpoint']
     dirs = {m: os.path.join(data_dir, CHECKPOINT_FOLDERS[m]) for m in METHODS}
+
+    if args.sweep:
+        res = run_sweep([tuple(r.split('=', 1)) for r in args.sweep], dirs['fully_obs'], args)
+        with open(os.path.join(out_dir, 'sweep.json'), 'w') as f:
+            json.dump(res, f, indent=1)
+        print(f'saved {out_dir}/sweep.json', flush=True)
+        print('SWEEP DONE', flush=True)
+        return
 
     sets = {}
     if SPEC.get('latent'):

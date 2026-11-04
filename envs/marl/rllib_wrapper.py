@@ -117,7 +117,7 @@ class RLLibWrapper(MultiAgentEnv):
 
         if self.belief:
             if 'fire' in self.name:
-                self.obs_history.append(deepcopy(infos['__common__']['decomposed_obs']))
+                self.obs_history.append(self._fire_history_entry(infos['__common__']['decomposed_obs']))
             else:
                 self.obs_history.append(deepcopy(obs))
 
@@ -135,6 +135,16 @@ class RLLibWrapper(MultiAgentEnv):
             for agent, agent_obs in obs.items():
                 #obs[agent][self.env.obs_map['target_pos']] = obs[agent][self.env.obs_map['target_pos']]
                 model_input = torch.from_numpy(converted_obs[agent]['input']).to(torch.float32)
+                # optional Gaussian noise on the belief model's input only (the policy's own observation is
+                # untouched), for the belief-noise sweep
+                input_noise = self.belief_kwargs.get('input_noise', 0.0)
+                if input_noise:
+                    noise = input_noise * torch.randn_like(model_input)
+                    # inputs already noisy from the env (e.g. the observed prey history when noise.target is on)
+                    skip = self.belief_kwargs.get('input_noise_skip')
+                    if skip:
+                        noise[skip] = 0.0
+                    model_input = model_input + noise
                 if self.belief_model.vae:
                     prediction, mu, logvar = self.belief_model.model(model_input)
                 else:
@@ -185,6 +195,23 @@ class RLLibWrapper(MultiAgentEnv):
                 obs = self.obs_history[-1]
         return obs,rew,terminated,truncated,infos
     
+    def _fire_history_entry(self, decomposed_obs):
+        '''
+        copy of the decomposed fire observation for the belief history. With belief_kwargs['image_noise'] = p (noise
+        sweep), each cell of every agent's fire window is independently replaced, with probability p, by a uniformly
+        random fire state (GREEN, RED, BLACK, WHITE). The belief's input and the policy's image (rebuilt from this
+        history by the fire transform) both see the noisy fire; the logged decomposed_obs stays the true state.
+        '''
+        entry = deepcopy(decomposed_obs)
+        p = self.belief_kwargs.get('image_noise', 0.0) if self.belief_kwargs else 0.0
+        if p:
+            for agent in self.agents:
+                fire = np.array(entry[agent]['fire'])
+                flip = np.random.random(fire.shape) < p
+                fire[flip] = np.random.randint(0, 4, size=int(flip.sum()))
+                entry[agent]['fire'] = fire
+        return entry
+
     def reset(self, **kwargs):
         obs,infos = {},{}
         obs,infos = self.env.reset(**kwargs)
@@ -207,7 +234,7 @@ class RLLibWrapper(MultiAgentEnv):
                     predictions[agent] = obs[agent][self.env.obs_map['team']]
 
             if 'fire' in self.name:
-                self.obs_history.append(deepcopy(infos['__common__']['decomposed_obs']))
+                self.obs_history.append(self._fire_history_entry(infos['__common__']['decomposed_obs']))
             else:
                 self.obs_history.append(deepcopy(obs))
             self.prediction_history.append(predictions)

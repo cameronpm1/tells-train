@@ -525,10 +525,42 @@ def plot_r2_ridgeline(S, in_dir, overlap=1.05):
     plt.close(fig)
 
 
+def plot_sweep(path):
+    """Belief-noise sweep: weighted task R^2 (x) against success rate (y), in seaborn. Allocentric runs (labels
+    'allocentric:<sigma>') are blue and joined in order of sigma; the egocentric (PF) run is an orange dot."""
+    import pandas as pd
+    import seaborn as sns
+    R = json.load(open(path))['runs']
+    rows = [dict(sigma=float(k.split(':')[1]) if k.startswith('allocentric') else np.nan,
+                 method='allocentric' if k.startswith('allocentric') else 'egocentric',
+                 weighted_r2=v['weighted_coverage'], success=v['success_rate']) for k, v in R.items()]
+    df = pd.DataFrame(rows).sort_values('sigma')
+    allo, ego = df[df.method == 'allocentric'], df[df.method == 'egocentric']
+    palette = {'allocentric': sns.color_palette()[0], 'egocentric': sns.color_palette()[1]}  # seaborn blue; orange
+    with sns.axes_style('whitegrid'):
+        fig, ax = plt.subplots(figsize=(8, 4.2), layout='constrained')
+        sns.lineplot(data=allo, x='weighted_r2', y='success', sort=False, color=palette['allocentric'],
+                     linewidth=2, ax=ax)
+        sns.scatterplot(data=pd.concat([allo, ego]), x='weighted_r2', y='success', hue='method', palette=palette,
+                        s=70, edgecolor='white', linewidth=0.8, zorder=3, ax=ax)
+    ax.set_xlabel('weighted task-direction R²')
+    ax.set_ylabel('success rate')
+    ax.set_ylim(-0.03, 1.03)
+    ax.legend(title=None, frameon=False, loc='upper left')
+    out = os.path.join(os.path.dirname(path), 'noise_sweep.png')
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
+    print(f'saved {out}')
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--in-dir', required=True)
+    p.add_argument('--in-dir', default=None)
+    p.add_argument('--sweep', default=None, help='sweep.json from cca_analysis.py --sweep: draw noise_sweep.png only')
     args = p.parse_args()
+    if args.sweep:
+        plot_sweep(args.sweep)
+        return
     S = json.load(open(os.path.join(args.in_dir, 'summary.json')))
     B = np.load(os.path.join(args.in_dir, 'bootstrap.npz'))
     plot_main(S, B, os.path.join(args.in_dir, 'fixed_axis.png'))

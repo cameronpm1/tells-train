@@ -1,0 +1,81 @@
+seed: &seed 23 # set experiment seed
+horizon: &horizon 10
+min_obs: 10
+logdir: logs/marl/market_game_large_60a_fully_obs3
+notes: large market game (equal split with sell cap), 60 companies vs 1 supplier, teammates observed through stockpile quantiles with noise
+
+alg:
+  type : ppo
+  lr : 0.00003
+  gamma: 0.99
+  nenvs : 10
+  cpu_envs: 2
+  target_ent: 0.1
+  batch: 4096
+  batch_size: 256
+  num_gpus: 1
+  pi : [256, 256, 256]
+  vf : [256, 256, 256]
+  timesteps: 3000
+  checkpoint_freq: 50
+  minibatch_size: 512
+  num_epochs: 3
+  lambda: 0.95
+  entropy_coeff: 0.0
+  clip_param: 0.05
+  vf_clip_param: 10.0
+  grad_clip: 0.25
+  pretrain:
+    enabled: true
+    episodes: 100
+    epochs: 28
+    batch_size: 1024
+    lr: 0.0005
+    value_loss_coef: 0.02
+    grad_clip: 1.0
+    eval_runs: 50
+
+env:
+  scenario: market_game_large
+  max_episode_length: 200
+  agent_list: ['target', 'agent0', 'agent1', 'agent2', 'agent3', 'agent4', 'agent5', 'agent6', 'agent7', 'agent8', 'agent9', 'agent10', 'agent11', 'agent12', 'agent13', 'agent14', 'agent15', 'agent16', 'agent17', 'agent18', 'agent19', 'agent20', 'agent21', 'agent22', 'agent23', 'agent24', 'agent25', 'agent26', 'agent27', 'agent28', 'agent29', 'agent30', 'agent31', 'agent32', 'agent33', 'agent34', 'agent35', 'agent36', 'agent37', 'agent38', 'agent39', 'agent40', 'agent41', 'agent42', 'agent43', 'agent44', 'agent45', 'agent46', 'agent47', 'agent48', 'agent49', 'agent50', 'agent51', 'agent52', 'agent53', 'agent54', 'agent55', 'agent56', 'agent57', 'agent58', 'agent59']
+  learned_agent_list: ['agent0', 'agent1', 'agent2', 'agent3', 'agent4', 'agent5', 'agent6', 'agent7', 'agent8', 'agent9', 'agent10', 'agent11', 'agent12', 'agent13', 'agent14', 'agent15', 'agent16', 'agent17', 'agent18', 'agent19', 'agent20', 'agent21', 'agent22', 'agent23', 'agent24', 'agent25', 'agent26', 'agent27', 'agent28', 'agent29', 'agent30', 'agent31', 'agent32', 'agent33', 'agent34', 'agent35', 'agent36', 'agent37', 'agent38', 'agent39', 'agent40', 'agent41', 'agent42', 'agent43', 'agent44', 'agent45', 'agent46', 'agent47', 'agent48', 'agent49', 'agent50', 'agent51', 'agent52', 'agent53', 'agent54', 'agent55', 'agent56', 'agent57', 'agent58', 'agent59']
+  belief: false
+  render_mode: rgb_array
+  quantiles: [0.0, 0.1, 0.5, 0.9, 1.0]
+  noise:
+    team: [0.05, 0.05, 0.05, 0.05, 0.05]   # min, q10, median, q90, max
+    target: 0.0
+  market_kwargs:
+    rho: 0.65
+    mean_demand: 2000.0
+    demand_phi: 0.9
+    demand_noise: 200.0
+    rate_range: [0.4, 1.6]
+    stock_cap: 240.0
+    min_stock: 2.0
+    random_fill: true
+    obs_scale: 100.0
+  supplier_kwargs:
+    n_distributors: 1
+    cartel: copies
+    stock_cut_frac: 0.1
+    eta: 1.0
+    max_cut_frac: 0.5
+    noise: 0.1
+    own_stock_gain: 0.1
+    own_stock_init: 500.0
+    region_seed: 0
+  controller_kwargs:
+    healthy_stock: 8800.0
+    kappa: 0.3
+    margin: 0.1
+    balance_gain: 0.2
+    max_sell: 0.8
+  reward_kwargs:
+    reward_scale: 0.0005
+    early_end_penalty: 20000.0
+    bc_scale: 1.25
+    oversubscription_scale: 4.0
+
+policy_list: ['agent0']

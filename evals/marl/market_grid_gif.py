@@ -22,7 +22,7 @@ from util.util import load_config
 
 
 CHECKPOINT_DIR = 'logs/marl/market_game_7a_fully_obs/checkpoint829'
-BELIEF_CONFIG = 'confs/belief/market_game_7a.yaml'
+BELIEF_CONFIG = 'confs/belief/market_game.yaml'
 # snapshot of the label-2 belief model taken before results_allocentric was evaluated
 BELIEF_DIR = 'logs/belief/_market_game_7a_fully_obs_market_game_NN_2_frozen/epoch989'
 # fully observable and allocentric were both evaluated with 7a_game.yaml (the belief wrapper

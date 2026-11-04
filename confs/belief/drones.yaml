@@ -13,7 +13,7 @@ model_name: 'drones_NN'
 input_channels: 63
 output_channels: 12
 data_dir: 'data/'
-data_name: 'drones_fully_obs_4'
+data_name: 'drones_fully_obs'
 lr_schedule: [200, 500, 1000, 2000, 3000]
 epochs: 3000
 

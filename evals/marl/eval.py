@@ -65,10 +65,12 @@ def eval(
         print('No model directory provided...')
         exit()
 
-    # output folders are created (and cleared) once here, never inside workers
+    # output folders are created (and cleared) once here, never inside workers. results_suffix (env config)
+    # keeps variant runs, e.g. the belief-noise sweep, from overwriting results_allocentric
+    suffix = cfg.get('results_suffix', '')
     if save_videos:
         if belief_on:
-            video_save_dir = os.path.join(checkpoint_dir,'videos_allocentric')
+            video_save_dir = os.path.join(checkpoint_dir,'videos_allocentric' + suffix)
         else:
             video_save_dir = os.path.join(checkpoint_dir,'videos')
         mkdir(video_save_dir)
@@ -77,7 +79,7 @@ def eval(
 
     if collect_results:
         if belief_on:
-            results_save_dir = os.path.join(checkpoint_dir,'results_allocentric')
+            results_save_dir = os.path.join(checkpoint_dir,'results_allocentric' + suffix)
         else:
             results_save_dir = os.path.join(checkpoint_dir,'results')
         mkdir(results_save_dir)
@@ -172,6 +174,9 @@ def eval_worker(
             ckpt_dir=belief_dir,
         )
         belief_kwargs['min_obs'] = cfg['min_obs']
+        belief_kwargs['input_noise'] = cfg.get('belief_input_noise', 0.0)
+        belief_kwargs['input_noise_skip'] = cfg.get('belief_input_noise_skip', [])
+        belief_kwargs['image_noise'] = cfg.get('fire_image_noise', 0.0)
     else:
         belief_kwargs['on'] = False
 
@@ -190,6 +195,8 @@ def eval_worker(
     algo_config = make_ray_config({**cfg, 'alg': {**cfg['alg'], 'nenvs': 0}})
     algo = algo_config.build_algo()
     algo.restore(checkpoint_dir)
+    if cfg.get('latent_noise'):
+        add_latent_noise(algo, cfg['latent_noise'])
 
     summaries = []
     for i in range(n_runs):
@@ -205,6 +212,29 @@ def eval_worker(
             )
         )
     return summaries
+
+class LatentNoise(torch.nn.Module):
+    """Adds Gaussian noise (std sigma) to the activations passing through it, in eval mode too."""
+    def __init__(self, sigma):
+        super().__init__()
+        self.sigma = sigma
+
+    def forward(self, x):
+        return x + self.sigma * torch.randn_like(x)
+
+
+def add_latent_noise(algo, sigma):
+    '''
+    noise-sweep (fire): insert Gaussian noise (std sigma, absolute units) into each policy's conv latent, right
+    after the flatten of its conv stack (the layer the fire CCA analyses), before the fully connected layers
+    '''
+    for pid in algo.config.policies:
+        model = algo.get_policy(pid).model
+        modules = list(model._convs.children())
+        cut = next(i for i, m in enumerate(modules) if isinstance(m, torch.nn.Flatten))
+        model._convs = torch.nn.Sequential(*modules[:cut + 1], LatentNoise(sigma), *modules[cut + 1:])
+        print(f'latent noise std {sigma:.4f} added to policy {pid}', flush=True)
+
 
 def eval_single_episode(
         env,
