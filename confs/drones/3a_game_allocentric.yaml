@@ -2,7 +2,7 @@ seed: &seed 22 # set experiment seed
 timestep: &timestep 1.0  #20
 horizon: &horizon 10 #10
 min_obs: 10
-logdir: /home/cameron/tells/logs/marl/drones_bc_newctrl
+logdir: logs/marl/drones_bc_newctrl
 notes: multi agent trainging, diff initialization, no curriculum, smallest initiallization 2
 
 
@@ -19,7 +19,7 @@ alg:
   num_gpus: 0
   pi : [256, 256, 256]
   vf : [256, 256, 256]
-  timesteps: 5000
+  timesteps: 1500
   checkpoint_freq: 250
   minibatch_size: 512
   num_epochs: 3

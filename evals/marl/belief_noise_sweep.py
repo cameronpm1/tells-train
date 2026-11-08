@@ -34,42 +34,56 @@ import numpy as np
 import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from util.util import MODELS_ROOT, RESULTS_ROOT  # noqa: E402
+
+# policies: MODELS_ROOT/marl/<run>/checkpoint<N>; clean (reference) belief models: MODELS_ROOT/belief/_<run>_NN_1/
+# fully observed rollouts: RESULTS_ROOT/<env>/results_fully_obs
+def _policy(run): return os.path.join(MODELS_ROOT, 'marl', run)
+def _belief(run): return os.path.join(MODELS_ROOT, 'belief', f'_{run}_NN_1')
+def _fully_obs(env): return os.path.join(RESULTS_ROOT, env, 'results_fully_obs')
 
 SWEEP_ENVS = {
     'predator_prey': dict(
         source='predator_prey_fully_obs', belief_config='confs/belief/predator_prey.yaml', ref_belief=None,
         epochs=1000,  # the clean model's validation loss bottomed out at epoch 745 of 4000; the best checkpoint is kept
         eval_config='confs/predator_prey/3a_game_allocentric.yaml', adv_suffix='prey',
-        packaging='predator_prey_obs_packaging', checkpoint='logs/marl/predator_prey_fully_obs/checkpoint1000',
-        n_agents=3),
+        packaging='predator_prey_obs_packaging', checkpoint=_policy('predator_prey_fully_obs/checkpoint1000'),
+        fully_obs_results=_fully_obs('predator_prey'), n_agents=3),
     'football': dict(  # 6000 episodes, but the clean model used only the stored 1000-episode split (ids 0-999).
         # (The 2026-11-03 sweep's datasets are named football_fully_obs_old_noise*: the source was renamed after.)
         source='football_fully_obs', belief_config='confs/belief/football.yaml',
-        ref_belief='logs/belief/_football_fully_obs_football_NN', epochs=None,
+        ref_belief=_belief('football_fully_obs'), epochs=None,
         eval_config='confs/football/5a_game_allocentric.yaml', adv_suffix='adv',
-        packaging='football_obs_packaging', checkpoint='logs/marl/football_fully_obs/checkpoint3000', n_agents=5),
+        packaging='football_obs_packaging', checkpoint=_policy('football_fully_obs/checkpoint3000'),
+        fully_obs_results=_fully_obs('football'), n_agents=5),
     'drones': dict(  # the model's checkpoint calls its data drones_fully_obs_4: it is drones_fully_obs (same split)
         source='drones_fully_obs', belief_config='confs/belief/drones.yaml',
-        ref_belief='logs/belief/_drones_fully_obs_drones_NN', epochs=None,
+        ref_belief=_belief('drones_fully_obs'), epochs=None,
         eval_config='confs/drones/3a_game_allocentric.yaml', adv_suffix='adv',
-        packaging='drones_obs_packaging', checkpoint='logs/marl/drones_fully_obs/checkpoint1500', n_agents=3),
-    'market_game': dict(  # results_allocentric came from model _1, stopped at epoch 1466 (_2 was trained later)
+        packaging='drones_obs_packaging', checkpoint=_policy('drones_fully_obs/checkpoint1500'),
+        fully_obs_results=_fully_obs('drones'), n_agents=3),
+    # the paper sweep used model _market_game_7a_fully_obs_market_game_NN_1 (stopped at epoch 1466) as the reference;
+    # its hyperparameters are identical to the published model's, which is used here
+    'market_game': dict(
         source='market_game_7a_fully_obs', belief_config='confs/belief/market_game.yaml',
-        ref_belief='logs/belief/_market_game_7a_fully_obs_market_game_NN_1', epochs=1466,
-        eval_config='confs/market_game/7a_game.yaml', adv_suffix='adv',
-        packaging='market_game_obs_packaging', checkpoint='logs/marl/market_game_7a_fully_obs/checkpoint829',
-        n_agents=7),
+        ref_belief=_belief('market_game_fully_obs'), epochs=1466,
+        eval_config='confs/market_game/7a_game.yaml', adv_suffix='adv_demand',
+        # --adv also puts demand_scale x sigma on the observed demand (policy and belief history); the policy collapses
+        # by demand noise ~0.5 alone (success 0.35 at 0.3), so full sigma would swamp the sweep
+        demand_scale=0.25,
+        packaging='market_game_obs_packaging', checkpoint=_policy('market_game_fully_obs/checkpoint829'),
+        fully_obs_results=_fully_obs('market_game'), n_agents=7),
     # drones, horizontal only: drone altitude barely varies (std 0.12), so isotropic noise swamps it; here the noise
     # is on x and y only (belief inputs, training data and the observed intruder). Datasets/models tagged noisexy.
     'drones_xy': dict(
         source='drones_fully_obs', belief_config='confs/belief/drones.yaml',
-        ref_belief='logs/belief/_drones_fully_obs_drones_NN', epochs=None, tag='noisexy',
+        ref_belief=_belief('drones_fully_obs'), epochs=None, tag='noisexy',
         eval_config='confs/drones/3a_game_allocentric.yaml', adv_suffix='adv', exclude='altitude',
         target_scale=[1.0, 1.0, 0.0], packaging='drones_obs_packaging',
-        checkpoint='logs/marl/drones_fully_obs/checkpoint1500', n_agents=3),
+        checkpoint=_policy('drones_fully_obs/checkpoint1500'), fully_obs_results=_fully_obs('drones'), n_agents=3),
     # fire: noise in the IMAGE (cell flips), not Gaussian: the belief input is per-frame one-hot burning/burnt maps
     'fire': dict(
-        source='fire_fully_obs', belief_config='confs/belief/fire.yaml', ref_belief='logs/belief/_fire_fully_obs_fire_NN',
+        source='fire_fully_obs', belief_config='confs/belief/fire.yaml', ref_belief=_belief('fire_fully_obs'),
         epochs=None, eval_config='confs/fire/4a_game_allocentric.yaml', noise_kind='flip', frames=4, cells=61 * 61),
 }
 HPARAMS = ['input_channels', 'output_channels', 'model_name', 'lr', 'train_batch', 'val_batch', 'test_batch',
@@ -147,7 +161,8 @@ def reference_hparams(E):
     if not E['ref_belief']:
         return {}
     import torch
-    ckpt = glob.glob(os.path.join(E['ref_belief'], 'lightning_logs', 'checkpoints', '*', '*.ckpt'))[0]
+    # published model (_<run>_NN_<i>/epoch<N>/*.ckpt) or a training folder (lightning_logs/checkpoints/*/*.ckpt)
+    ckpt = sorted(glob.glob(os.path.join(E['ref_belief'], '**', '*.ckpt'), recursive=True))[-1]
     h = torch.load(ckpt, map_location='cpu', weights_only=False)['hyper_parameters']
     return {k: h[k] for k in HPARAMS if k in h}
 
@@ -172,13 +187,19 @@ def make_configs(env, E, sigma, data_name):
     print(f'configs: {belief_path}, {eval_path}', flush=True)
 
 
-def adversary_inputs(E):
-    """Belief inputs that carry the observed adversary position: perturb target_pos in every step of a real
-    observation history and see which packaged inputs move."""
+def fully_obs_results(E):
+    """The fully observed eval run of the env's checkpoint: E['fully_obs_results'] (RESULTS_ROOT/<env>/results_fully_obs),
+    else <checkpoint>/results."""
+    return E.get('fully_obs_results', os.path.join(E['checkpoint'], 'results'))
+
+
+def adversary_inputs(E, key='target_pos'):
+    """Belief inputs that carry the observed adversary position (or another obs_map field, key): perturb it in
+    every step of a real observation history and see which packaged inputs move."""
     import copy
     import evals.marl.observation_packaging as P
     pack = getattr(P, E['packaging'])
-    d = np.load(os.path.join(E['checkpoint'], 'results', '0.npz'), allow_pickle=True)
+    d = np.load(os.path.join(fully_obs_results(E), '0.npz'), allow_pickle=True)
     om = d['obs_map'].item()
     agents = [f'agent{i}' for i in range(E['n_agents'])]
     hist = [{a: np.asarray(d[str(k)][0][a], dtype=float) for a in agents} for k in range(1, 13)]
@@ -186,7 +207,7 @@ def adversary_inputs(E):
     moved = np.zeros(len(base), dtype=bool)
     for step in range(len(hist)):  # one step at a time, so no perturbations cancel
         h2 = copy.deepcopy(hist)
-        h2[step]['agent0'][om['target_pos']] += 1.0
+        h2[step]['agent0'][om[key]] += 1.0
         moved |= np.abs(pack(h2, om, ['agent0'], min_obs=10)[0]['agent0']['input'] - base) > 1e-9
     return np.flatnonzero(moved).tolist()
 
@@ -199,7 +220,7 @@ def excluded_inputs(E):
     import copy
     import evals.marl.observation_packaging as P
     pack = getattr(P, E['packaging'])
-    d = np.load(os.path.join(E['checkpoint'], 'results', '0.npz'), allow_pickle=True)
+    d = np.load(os.path.join(fully_obs_results(E), '0.npz'), allow_pickle=True)
     om = d['obs_map'].item()
     agents = [f'agent{i}' for i in range(E['n_agents'])]
     hist = [{a: np.asarray(d[str(k)][0][a], dtype=float) for a in agents} for k in range(1, 13)]
@@ -221,6 +242,9 @@ def make_adv_config(E, sigma):
     those inputs, so every input still carries exactly sigma, as in training (no retraining needed)."""
     skip = sorted(set(adversary_inputs(E)) | set(excluded_inputs(E)))
     ev = yaml.safe_load(open(E['eval_config']))
+    if E.get('demand_scale'):  # market: noise on the observed demand too. Its belief inputs are NOT skipped: they get
+        # the env's demand_scale x sigma plus the belief-input sigma, ~sigma in total as in training (1.03 sigma at 0.25)
+        ev['env']['noise']['demand'] = float(sigma) * E['demand_scale']
     scale = E.get('target_scale')  # per-axis noise on the observed adversary (drones_xy: x, y only)
     ev['env']['noise']['target'] = [float(sigma) * a for a in scale] if scale else float(sigma)
     ev.update(belief_input_noise=float(sigma), belief_input_noise_skip=skip,

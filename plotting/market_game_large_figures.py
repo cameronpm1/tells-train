@@ -10,7 +10,7 @@ results_table_market_large.tex   success rate and episode length, fully observab
 
 Usage:
     python plotting/market_game_large_figures.py
-    python plotting/market_game_large_figures.py --checkpoint <run>/<checkpoint> --out-dir <dir>
+    python plotting/market_game_large_figures.py --results-root results/market_game_large --out-dir <dir>
 """
 import argparse
 import glob
@@ -24,6 +24,7 @@ import numpy as np
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'evaluate'))
 
 from envs.marl.market_game_env import MarketGameEnv
 from plot_cca_analysis import BLUE_RAMP, FLOOR, TEXT, TEXT_2
@@ -32,11 +33,12 @@ _rc = plt.rcParams.copy()
 from predator_prey_evaluate import _draw_average_with_std, _set_endpoint_yticks  # its import sets bold text globally
 plt.rcParams.update(_rc)
 from market_game_evaluate import load_env_stub
+from util.util import find_run_config, RESULTS_ROOT as _RESULTS
 BOLD = {'font.weight': 'bold', 'axes.titleweight': 'bold', 'axes.labelweight': 'bold'}
 
-CHECKPOINT_DIR = '/home/cameron/tells/logs/marl/market_game_large_60a_fully_obs/checkpoint250'
-OUT_DIR = '/home/cameron/tells/results/market_game_large/figures'
-TABLE_PATH = '/home/cameron/tells/plotting/results_table_market_large.tex'
+RESULTS_ROOT = os.path.join(_RESULTS, 'market_game_large')  # results_fully_obs/, results_allocentric/, config.yaml
+OUT_DIR = os.path.join(RESULTS_ROOT, 'figures')
+TABLE_PATH = os.path.join(OUT_DIR, 'results_table_market_large.tex')
 
 # mean decomposed task reward (team reward without the imitation term) of the centralized controller over 200
 # 60-company episodes (run config), with the terminal step of episodes that end early left out as in load_episode
@@ -53,7 +55,7 @@ def load_episode(path, results_dir):
     d = np.load(path, allow_pickle=True)
     obs_map = d['obs_map'].item()
     stub = load_env_stub(results_dir, obs_map)
-    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.normpath(results_dir))), 'config.yaml')) as f:
+    with open(find_run_config(results_dir)) as f:
         bc_scale = yaml.safe_load(f)['env']['reward_kwargs']['bc_scale']
     steps = sorted((f for f in d.files if f.isdigit()), key=int)
     true, pred, team_std, reward = [], [], [], []
@@ -267,16 +269,17 @@ def write_table(runs, path):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--checkpoint', default=CHECKPOINT_DIR)
+    p.add_argument('--results-root', default=RESULTS_ROOT,
+                   help='folder holding results_fully_obs/ and results_allocentric/ (and the run config.yaml)')
     p.add_argument('--out-dir', default=OUT_DIR)
     p.add_argument('--table', default=TABLE_PATH)
     p.add_argument('--workers', type=int, default=16)
     args = p.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
-    with open(os.path.join(os.path.dirname(os.path.normpath(args.checkpoint)), 'config.yaml')) as f:
+    with open(find_run_config(os.path.join(args.results_root, 'results_allocentric'))) as f:
         plot_schematic(yaml.safe_load(f), args.out_dir)
-    runs = {name: load_all(os.path.join(args.checkpoint, sub), args.workers)
-            for name, sub in [('fully_obs', 'results'), ('allocentric', 'results_allocentric')]}
+    runs = {name: load_all(os.path.join(args.results_root, sub), args.workers)
+            for name, sub in [('fully_obs', 'results_fully_obs'), ('allocentric', 'results_allocentric')]}
     for name, eps in runs.items():
         print(f'{name}: {len(eps)} episodes, success {np.mean([e["success"] for e in eps]):.3f}')
     write_table(runs, args.table)

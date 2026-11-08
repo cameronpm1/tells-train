@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'evaluate'))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -24,15 +25,16 @@ belief error, decomposed reward, the teammate matching and the drawing all come 
 so only the middle panel differs from its combined_metrics figure
 '''
 
-LOGS = '/home/cameron/tells/logs/marl'
+from util.util import RESULTS_ROOT
+
 ENVS = {
-    'predator_prey': dict(module='predator_prey_evaluate', checkpoint=f'{LOGS}/predator_prey_fully_obs/checkpoint1000'),
-    'drones': dict(module='drones_evaluate', checkpoint=f'{LOGS}/drones_fully_obs/checkpoint1500'),
-    'fire': dict(module='fire_evaluate', checkpoint=f'{LOGS}/fire_fully_obs/checkpoint5000'),
-    'football': dict(module='football_evaluate', checkpoint=f'{LOGS}/football_fully_obs/checkpoint3000'),
+    'predator_prey': dict(module='predator_prey_evaluate', results_root=f'{RESULTS_ROOT}/predator_prey'),
+    'drones': dict(module='drones_evaluate', results_root=f'{RESULTS_ROOT}/drones'),
+    'fire': dict(module='fire_evaluate', results_root=f'{RESULTS_ROOT}/fire'),
+    'football': dict(module='football_evaluate', results_root=f'{RESULTS_ROOT}/football'),
     # market: market_game_evaluate.episode_metrics already gives belief error and the cross-observer std, and its
     # combined_metrics figure is already the three-panel std version, so only the two-panel plot is drawn
-    'market_game': dict(module='market_game_evaluate', checkpoint=f'{LOGS}/market_game_7a_fully_obs/checkpoint829',
+    'market_game': dict(module='market_game_evaluate', results_root=f'{RESULTS_ROOT}/market_game',
                         two_panel_only=True),
 }
 
@@ -166,17 +168,26 @@ def plot_combined_std_belief(env: str, belief_error: dict, belief_std: dict, sav
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--envs', nargs='+', default=list(ENVS), choices=list(ENVS))
-    parser.add_argument('--out-root', type=str, default='/home/cameron/tells/results',
+    parser.add_argument('--out-root', type=str, default=RESULTS_ROOT,
                         help='plots are saved as <out-root>/<env>/combined_std.png (belief error, belief std and '
                              'decomposed reward) and <out-root>/<env>/combined_std_belief.png (belief error and '
                              'belief std only); the market env (results/market_game) gets only the latter')
+    parser.add_argument('--results-root', type=str, default=None,
+                        help='folder holding results_allocentric/ and results_pf/ (one env only; '
+                             'default: the env\'s results_root in ENVS)')
+    parser.add_argument('--out-dir', type=str, default=None,
+                        help='save the plots here instead of <out-root>/<env> (one env only)')
     parser.add_argument('--workers', type=int, default=16)
     args = parser.parse_args()
+    if (args.results_root or args.out_dir) and len(args.envs) != 1:
+        parser.error('--results-root / --out-dir need exactly one env in --envs')
 
     for env in args.envs:
         ev = importlib.import_module(ENVS[env]['module'])
-        result_dirs = {'Allocentric': os.path.join(ENVS[env]['checkpoint'], 'results_allocentric'),
-                       'PF': os.path.join(ENVS[env]['checkpoint'], 'results_pf')}
+        results_root = args.results_root or ENVS[env]['results_root']
+        out_dir = args.out_dir or os.path.join(args.out_root, env)
+        result_dirs = {'Allocentric': os.path.join(results_root, 'results_allocentric'),
+                       'PF': os.path.join(results_root, 'results_pf')}
         max_step = ev.MAX_STEP if env == 'football' else None
 
         belief_error, belief_std, decomposed_reward = {}, {}, {}
@@ -191,8 +202,7 @@ if __name__ == '__main__':
             decomposed_reward[label] = pool_by_step([v[2] for v in per_episode], max_step)
             print(f'{env} {label}: {len(episodes)} episodes', flush=True)
 
-        os.makedirs(os.path.join(args.out_root, env), exist_ok=True)
+        os.makedirs(out_dir, exist_ok=True)
         if not ENVS[env].get('two_panel_only'):
-            plot_combined_std(env, belief_error, belief_std, decomposed_reward,
-                              os.path.join(args.out_root, env, 'combined_std.png'))
-        plot_combined_std_belief(env, belief_error, belief_std, os.path.join(args.out_root, env, 'combined_std_belief.png'))
+            plot_combined_std(env, belief_error, belief_std, decomposed_reward, os.path.join(out_dir, 'combined_std.png'))
+        plot_combined_std_belief(env, belief_error, belief_std, os.path.join(out_dir, 'combined_std_belief.png'))

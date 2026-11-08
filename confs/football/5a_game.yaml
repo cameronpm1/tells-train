@@ -2,7 +2,7 @@ seed: &seed 22 # set experiment seed
 timestep: &timestep 1.0  #20
 horizon: &horizon 10 #10
 min_obs: 10
-logdir: /home/cameron/tells/logs/marl/football_fully_obs
+logdir: logs/marl/football_fully_obs
 notes: multi agent trainging, diff initialization, no curriculum, smallest initiallization 2
 
 alg:
@@ -42,8 +42,9 @@ env:
   agent_list: ['agent0', 'agent1', 'agent2', 'agent3', 'agent4', 'target']
   learned_agent_list: ['agent0', 'agent1', 'agent2', 'agent3', 'agent4']
   belief: false
-  noise:
-    team: 0.05
+  noise:  # football_fully_obs was trained noise-free (its wrapper never applied noise before 2026-11-06), so 0 here;
+          # belief data is collected with noise 0.03 via 5a_game_collect.yaml
+    team: 0.0
     target: 0.0
   reward_kwargs:
     pass_reward: 0.0

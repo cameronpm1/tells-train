@@ -1,0 +1,63 @@
+seed: &seed 22 # set experiment seed
+timestep: &timestep 1.0  #20
+horizon: &horizon 10 #10
+min_obs: 10
+logdir: logs/marl/football_fully_obs
+notes: multi agent trainging, diff initialization, no curriculum, smallest initiallization 2
+
+alg:
+  type : ppo
+  lr : 0.00003
+  gamma: 0.99
+  nenvs : 6
+  cpu_envs: 2
+  target_ent: 0.1
+  batch: 4096
+  batch_size: 256
+  num_gpus: 0
+  pi : [512, 512, 512]
+  vf : [512, 512, 512]
+  timesteps: 3000
+  checkpoint_freq: 250
+  minibatch_size: 512
+  num_epochs: 3
+  lambda: 0.95
+  entropy_coeff: 0.0
+  clip_param: 0.05
+  vf_clip_param: 10.0
+  grad_clip: 0.25
+  pretrain:
+    enabled: true
+    episodes: 1800
+    epochs: 40
+    batch_size: 1024
+    lr: 0.0005
+    value_loss_coef: 0.02
+    grad_clip: 1.0
+    eval_runs: 50
+
+env:
+  scenario: 5_agent_football
+  max_episode_length: 300 #MUST ALSO EDIT IN BUILDER AT BOTTOM OF ENV FILE
+  agent_list: ['agent0', 'agent1', 'agent2', 'agent3', 'agent4', 'target']
+  learned_agent_list: ['agent0', 'agent1', 'agent2', 'agent3', 'agent4']
+  belief: false
+  noise:  # belief-data collection for the allocentric model: observation noise 0.03 on teammates (and the ball), as
+          # in the other environments; the policy itself (football_fully_obs) was trained noise-free (5a_game.yaml)
+    team: 0.03
+    target: 0.0
+  reward_kwargs:
+    pass_reward: 0.0
+    target_steal_penalty: -750.0
+    deviation_threshold: 0.1
+    deviation_scale: 1.0 #0.5
+    controller_match_reward: 0.5
+    oob_penalty: -750
+  controller_kwargs:
+    dead_zone: 0.01
+    fast: true
+
+sim:
+  n: 3 #number of pursuit agents
+
+policy_list: ['agent0'] #, 'agent1', 'agent2']

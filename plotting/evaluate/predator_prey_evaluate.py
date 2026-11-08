@@ -9,24 +9,29 @@ import yaml
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from envs.marl.drones_env import CaravanAviary
-from overlay_plot_drones import load_episode_positions, load_episode_beliefs
+from envs.marl.predator_prey_env import PredatorPreyEnv
+from loaders import load_predator_prey_positions as load_episode_positions, load_predator_prey_beliefs as load_episode_beliefs
+from util.util import find_run_config, RESULTS_ROOT
+
+# bold text for every figure (set at import, so modules that import this one get it too)
+plt.rcParams['font.weight'] = 'bold'
+plt.rcParams['axes.titleweight'] = 'bold'
+plt.rcParams['axes.labelweight'] = 'bold'
 
 
-RESULTS_DIR = '/home/cameron/tells/logs/marl/drones_fully_obs/checkpoint1500/results_allocentric'
-RESULTS_PF_DIR = '/home/cameron/tells/logs/marl/drones_fully_obs/checkpoint1500/results_pf'
-BELIEF_ERROR_SAVE_PATH = '/home/cameron/tells/test_drones_belief_error.png'
-DECOMPOSED_REWARD_SAVE_PATH = '/home/cameron/tells/test_drones_decomposed_reward.png'
-ESTIMATE_VARIANCE_SAVE_PATH = '/home/cameron/tells/test_drones_estimate_variance.png'
-COMBINED_SAVE_PATH = '/home/cameron/tells/test_drones_combined_metrics.png'
+RESULTS_DIR = os.path.join(RESULTS_ROOT, 'predator_prey', 'results_allocentric')
+RESULTS_PF_DIR = os.path.join(RESULTS_ROOT, 'predator_prey', 'results_pf')
+BELIEF_ERROR_SAVE_PATH = os.path.join(RESULTS_ROOT, 'predator_prey', 'belief_error.png')
+DECOMPOSED_REWARD_SAVE_PATH = os.path.join(RESULTS_ROOT, 'predator_prey', 'decomposed_reward.png')
+ESTIMATE_VARIANCE_SAVE_PATH = os.path.join(RESULTS_ROOT, 'predator_prey', 'estimate_variance.png')
+COMBINED_SAVE_PATH = os.path.join(RESULTS_ROOT, 'predator_prey', 'combined_metrics.png')
 
 # mean decomposed reward over 500 controller-driven episodes
-# (evals/marl/collect_drones_decomposed_rewards.py), with terminal
-# breached/oob steps filtered out the same way decomposed_reward_by_step
-# does below
-CONTROLLER_MEAN_DECOMPOSED_REWARD = 0.325627
+# (evals/marl/collect_decomposed_rewards.py), with terminal success/oob
+# steps filtered out the same way decomposed_reward_by_step does below
+CONTROLLER_MEAN_DECOMPOSED_REWARD = 0.448082
 
 
 def list_episodes(results_dir: str):
@@ -40,57 +45,31 @@ def list_episodes(results_dir: str):
 
 def load_controller_cfg(results_dir: str) -> dict:
     '''
-    walk up from a checkpoint's results dir (<run_dir>/<checkpoint>/results)
-    to the run's config.yaml and pull out env.controller_kwargs - needed to
-    recompute the adversary force each protector applies to the adversary,
-    the same way CaravanAviary.decompose_reward does
+    the run's config.yaml for a results dir (util.util.find_run_config: next to it in
+    results/<env>, or two levels up in the logs layout) and pull out env.controller_kwargs - needed to
+    recompute the adversary force each predator applies to the prey, the
+    same way PredatorPreyEnv.decompose_reward does
     '''
-    checkpoint_dir = os.path.dirname(os.path.normpath(results_dir))
-    run_dir = os.path.dirname(checkpoint_dir)
-    config_path = os.path.join(run_dir, 'config.yaml')
-
-    with open(config_path, 'r') as stream:
+    with open(find_run_config(results_dir), 'r') as stream:
         cfg = yaml.safe_load(stream)
 
     return cfg['env']['controller_kwargs']
 
 
-def compute_decomposed_reward(
-    obs_no_noise: dict,
-    target_obs: np.ndarray,
-    rewards: dict,
-    current_target_box_idx: int,
-    obs_map: dict,
-    controller_cfg: dict,
-) -> dict:
+def compute_decomposed_reward(obs_no_noise: dict, rewards: dict, obs_map: dict, controller_cfg: dict) -> dict:
     '''
     recompute the per-agent decomposed reward for a single step by calling
-    the real CaravanAviary.decompose_reward (envs/marl/drones_env.py)
+    the real PredatorPreyEnv.decompose_reward (envs/marl/predator_prey_env.py)
     directly, rather than reimplementing its logic here - decompose_reward
-    only touches self.agents / self.n_agents / self.controller_cfg /
-    self.obs_map / self.current_target_box_idx, so a lightweight stub
-    standing in for the env is enough to call it unbound
-
-    decompose_reward reads obs['target'] (the adversary's own observation,
-    needed to recover the adversary/protector/box positions) - that key is
-    stripped from obs_no_noise (see RLLibWrapper.step, which pops 'target'
-    before recording obs_no_noise), but is separately available as the
-    top-level infos['target'] the wrapper records in eval mode, so it's
-    passed in here and restored under the 'target' key
+    only touches self.agents / self.controller_cfg / self.obs_map, so a
+    lightweight stub standing in for the env is enough to call it unbound
 
     inputs
     ------
     obs_no_noise:dict
-        protector agent -> ground-truth observation for that step
-        (infos['__common__']['obs_no_noise'])
-    target_obs:np.ndarray
-        the adversary's own ground-truth observation for that step
-        (infos['target'])
+        agent -> ground-truth observation for that step (infos['__common__']['obs_no_noise'])
     rewards:dict
         agent -> reward for that step
-    current_target_box_idx:int
-        the box index the adversary was pursuing that step
-        (infos['__common__']['target']['target_box_idx'])
     obs_map:dict
         slices dict loaded from the eval npz ('obs_map')
     controller_cfg:dict
@@ -100,47 +79,46 @@ def compute_decomposed_reward(
     -------
     dict: agent -> decomposed reward
     '''
-    agents = sorted(obs_no_noise.keys())
     env_stub = SimpleNamespace(
-        agents=agents,
-        n_agents=len(agents),
+        agents=sorted(obs_no_noise.keys()),
         controller_cfg=controller_cfg,
         obs_map=obs_map,
-        current_target_box_idx=current_target_box_idx,
     )
-    obs = dict(obs_no_noise)
-    obs['target'] = target_obs
     joint_reward = float(np.mean(list(rewards.values())))
 
-    return CaravanAviary.decompose_reward(env_stub, joint_reward, obs)
+    return PredatorPreyEnv.decompose_reward(env_stub, joint_reward, obs_no_noise)
 
 
 def belief_error_by_step(results_dir: str, episode: int) -> dict:
     '''
     load a single episode's eval results and, for each step, compute each
-    protector's individual belief error the same way overlay_plot_drones
-    does: reconstruct absolute ground-truth protector positions
+    predator's individual belief error the same way loaders.load_predator_prey_beliefs
+    does: reconstruct absolute ground-truth predator positions
     (load_episode_positions) and each observer's believed absolute position
     of its teammates (load_episode_beliefs), then take the position error
     between them for every observer/teammate pair and average across pairs
+
+    this differs from infos['__common__']['belief_error'] (a
+    permutation-invariant error the env computes internally) by matching
+    teammates to their known identity instead
 
     returns
     -------
     dict: step (int) -> belief error averaged over agent pairs (float)
     '''
-    drone_positions, _target_positions, _true_target_positions, _box_positions = load_episode_positions(
+    predator_positions, _target_positions, _true_target_positions, _goal_position = load_episode_positions(
         results_dir=results_dir, episode=episode,
     )
     beliefs = load_episode_beliefs(results_dir=results_dir, episode=episode)
-    drone_names = sorted(drone_positions)
-    n_steps = drone_positions[drone_names[0]].shape[0]
+    predator_names = sorted(predator_positions)
+    n_steps = predator_positions[predator_names[0]].shape[0]
 
     errors_by_step = {}
     for t in range(n_steps):
         pair_errors = [
-            np.linalg.norm(drone_positions[target][t] - beliefs[observer][target][t])
-            for observer in drone_names
-            for target in drone_names
+            np.linalg.norm(predator_positions[target][t] - beliefs[observer][target][t])
+            for observer in predator_names
+            for target in predator_names
             if target != observer
         ]
         errors_by_step[t + 1] = float(np.mean(pair_errors))
@@ -153,12 +131,12 @@ def decomposed_reward_by_step(results_dir: str, episode: int, controller_cfg: di
     load a single episode's eval results and, for each step, recompute the
     per-agent decomposed reward and average it across agents
 
-    a step is skipped if it ends in the adversary breaching a box (the
-    intruded_penalty) or a protector going out of bounds (the oob_penalty)
-    - CaravanAviary._computeReward applies both as a flat team-wide add-on
-    that force_share can't meaningfully attribute to individual agents,
-    same reasoning as predator_prey_evaluate.py's decomposed_reward_by_step
-    for its success/oob terminal bonus
+    steps where the episode terminated with a success bonus or an
+    out-of-bounds penalty are skipped: decompose_reward apportions the
+    joint reward by each predator's adversary-force contribution, which
+    only makes sense for the smooth per-step reward - a terminal
+    success/oob bonus is a flat team-wide add-on that force_share can't
+    meaningfully attribute to individual agents
 
     returns
     -------
@@ -179,16 +157,13 @@ def decomposed_reward_by_step(results_dir: str, episode: int, controller_cfg: di
             continue
 
         terminal_bonus_or_penalty = any(
-            common_infos.get(agent, {}).get('breached') or common_infos.get(agent, {}).get('oob')
+            common_infos.get(agent, {}).get('success') or common_infos.get(agent, {}).get('oob')
             for agent in obs_no_noise
         )
         if terminal_bonus_or_penalty:
             continue
 
-        current_target_box_idx = common_infos['target']['target_box_idx']
-        decomposed_reward = compute_decomposed_reward(
-            obs_no_noise, infos['target'], rewards, current_target_box_idx, obs_map, controller_cfg,
-        )
+        decomposed_reward = compute_decomposed_reward(obs_no_noise, rewards, obs_map, controller_cfg)
         reward_by_step[int(step)] = float(np.mean(list(decomposed_reward.values())))
 
     return reward_by_step
@@ -197,24 +172,24 @@ def decomposed_reward_by_step(results_dir: str, episode: int, controller_cfg: di
 def matched_belief_estimates_by_step(results_dir: str, episode: int) -> dict:
     '''
     load a single episode's eval results and, for each step, recover every
-    observer drone's belief about its 2 teammates as absolute positions,
-    matching the model's 2 predicted slots to the 2 actual teammates by
-    whichever assignment (direct vs swapped) has the lower total distance
+    observer's belief about its 2 teammates as absolute positions, matching
+    the model's 2 predicted slots to the 2 actual teammates by whichever
+    assignment (direct vs swapped) has the lower total distance
 
     this matching is required because the belief model's teammate slots are
     permutation-invariant by construction (learn/belief/models.py
-    DronesPermutationInvariantMSE.permutation_invariant_loss takes the min
+    PredPreyPermutationInvariantMSE.permutation_invariant_loss takes the min
     of the direct/swapped loss every step, so training never penalizes slot
-    order) - the same direct/swapped comparison CaravanAviary.team_error
-    uses to score these predictions is used here to recover identity
-    instead, unlike load_episode_beliefs (overlay_plot_drones.py), which
-    zips slots to teammates in a fixed order and silently mislabels them
-    whenever the model outputs the swapped order
+    order) - the same direct/swapped comparison PredatorPreyEnv.team_error
+    uses to score these predictions is used here to recover identity instead,
+    unlike load_episode_beliefs (loaders.load_predator_prey_beliefs), which zips
+    slots to teammates in a fixed order and silently mislabels them whenever
+    the model outputs the swapped order
 
     returns
     -------
-    dict: step (int) -> {drone: list of estimated absolute (x, y, z)
-        positions, one from each observer that isn't that drone}
+    dict: step (int) -> {agent: list of estimated absolute (x, y) positions,
+        one from each observer that isn't that agent}
     '''
     npz_path = os.path.join(results_dir, f'{episode}.npz')
     data = np.load(npz_path, allow_pickle=True)
@@ -226,8 +201,8 @@ def matched_belief_estimates_by_step(results_dir: str, episode: int) -> dict:
     steps = sorted((f for f in data.files if f != 'obs_map'), key=int)
 
     first_common = data[steps[0]][4]['__common__']
-    drone_names = sorted(first_common['obs_no_noise'].keys())
-    dim = (team_slice.stop - team_slice.start) // (len(drone_names) - 1)
+    agents = sorted(first_common['obs_no_noise'].keys())
+    dim = (team_slice.stop - team_slice.start) // (len(agents) - 1)
 
     estimates_by_step = {}
     for step in steps:
@@ -238,10 +213,10 @@ def matched_belief_estimates_by_step(results_dir: str, episode: int) -> dict:
             continue
 
         sampled_predictions = common['sampled_predictions']
-        estimates_by_target = {drone: [] for drone in drone_names}
+        estimates_by_target = {agent: [] for agent in agents}
 
-        for observer in drone_names:
-            others = sorted(drone for drone in drone_names if drone != observer)
+        for observer in agents:
+            others = sorted(agent for agent in agents if agent != observer)
             observer_pos = np.asarray(obs_no_noise[observer][self_pos_slice])
             slots = np.asarray(sampled_predictions[observer]).reshape(-1, dim)
             teammate_positions = np.stack(
@@ -265,27 +240,27 @@ def matched_belief_estimates_by_step(results_dir: str, episode: int) -> dict:
 def agent_estimate_variance_by_step(results_dir: str, episode: int) -> dict:
     '''
     load a single episode's eval results and, for each step, compute how
-    much the different observers' estimates of a given drone's position
-    disagree with each other, then average that disagreement across drones
+    much the different observers' estimates of a given agent's position
+    disagree with each other, then average that disagreement across agents
 
-    a drone's estimates (matched_belief_estimates_by_step) disagreement is
-    the trace of their 3x3 covariance matrix - the sum of the x, y, and z
+    an agent's estimates (matched_belief_estimates_by_step) disagreement is
+    the trace of their 2x2 covariance matrix - the sum of the x and y
     componentwise variances, i.e. the mean squared distance of each
     estimate from their shared centroid
 
     returns
     -------
-    dict: step (int) -> estimate variance averaged over drones (float)
+    dict: step (int) -> estimate variance averaged over agents (float)
     '''
     estimates_by_step = matched_belief_estimates_by_step(results_dir, episode)
 
     variance_by_step = {}
     for step, estimates_by_target in estimates_by_step.items():
-        drone_variances = [
+        agent_variances = [
             np.var(np.stack(estimates), axis=0).sum()
             for estimates in estimates_by_target.values()
         ]
-        variance_by_step[step] = float(np.mean(drone_variances))
+        variance_by_step[step] = float(np.mean(agent_variances))
 
     return variance_by_step
 
@@ -534,7 +509,7 @@ if __name__ == '__main__':
         ylabel=f'decomposed reward ({run_counts})',
         title='Average Decomposed Reward over Episode Steps',
         reference_line=CONTROLLER_MEAN_DECOMPOSED_REWARD,
-        reference_label='controller mean',
+        reference_label=f'controller mean',
         min_samples=2,
     )
 
@@ -553,3 +528,6 @@ if __name__ == '__main__':
         reference_line=CONTROLLER_MEAN_DECOMPOSED_REWARD,
         reference_label='controller mean',
     )
+
+
+

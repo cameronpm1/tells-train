@@ -1,4 +1,4 @@
-"""Fixed-axis CCA comparison of belief models against the true state (see CCA_ANALYSIS.md).
+"""Fixed-axis CCA comparison of belief models against the true state.
 
 Every method (fully observed, allocentric, PF) is scored on the SAME axes, fixed by the true model:
     task axes       the policy's task directions: CCA of the true state with the fully-observed RL
@@ -17,8 +17,8 @@ Variables per agent-step (all agents pooled, first --max-steps steps of each epi
            observation, one-hot (policy_actions_true_obs, logged by eval.py)
 
 Usage:
-    python evals/marl/cca_analysis.py --env football --out-dir results/football/cca_final
-    python plotting/plot_cca_analysis.py --in-dir results/football/cca_final
+    python evals/marl/cca_analysis.py --env football --out-dir results/football/cca
+    python plotting/plot_cca_analysis.py --in-dir results/football/cca
 """
 import os
 for _v in ['OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS']:
@@ -27,13 +27,26 @@ for _v in ['OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS']:
 import argparse
 import glob
 import json
+import sys
 from functools import partial
 from multiprocessing import Pool
 
 import numpy as np
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from util.util import MODELS_ROOT, RESULTS_ROOT  # noqa: E402
+
 METHODS = ['fully_obs', 'allocentric', 'pf']  # fully_obs is the reference that fixes the task directions
 CHECKPOINT_FOLDERS = {'fully_obs': 'results', 'allocentric': 'results_allocentric', 'pf': 'results_pf'}
+
+
+def result_dirs(root):
+    """method -> results folder under root: a policy checkpoint (results/, results_allocentric/, results_pf/) or a
+    results/<env> folder, where the fully observed run is results_fully_obs/."""
+    folders = dict(CHECKPOINT_FOLDERS)
+    if not os.path.isdir(os.path.join(root, 'results')) and os.path.isdir(os.path.join(root, 'results_fully_obs')):
+        folders['fully_obs'] = 'results_fully_obs'
+    return {m: os.path.join(root, f) for m, f in folders.items()}
 SPEC = {}  # environment spec, filled in main, read by forked workers
 
 
@@ -60,20 +73,20 @@ ENVS = {
     'predator_prey': dict(
         agents=['agent0', 'agent1', 'agent2'], p=2, adversary='prey', own_slice=slice(0, 6), n_actions=5,
         success=pp_success, extras=[],
-        checkpoint='logs/marl/predator_prey_fully_obs/checkpoint1000'),
+        checkpoint=os.path.join(MODELS_ROOT, 'marl', 'predator_prey_fully_obs', 'checkpoint1000')),
     'football': dict(
         agents=['agent0', 'agent1', 'agent2', 'agent3', 'agent4'], p=2, adversary='opponent', own_slice=slice(0, 6),
         n_actions=11, success=football_success, extras=[('ball', 'ball_pos')],
-        checkpoint='logs/marl/football_fully_obs/checkpoint3000'),
+        checkpoint=os.path.join(MODELS_ROOT, 'marl', 'football_fully_obs', 'checkpoint3000')),
     'drones': dict(
         agents=['agent0', 'agent1', 'agent2'], p=3, adversary='intruder', own_slice=slice(0, 21), n_actions=11,
         success=drone_success, extras=[],
-        checkpoint='logs/marl/drones_fully_obs/checkpoint1500'),
+        checkpoint=os.path.join(MODELS_ROOT, 'marl', 'drones_fully_obs', 'checkpoint1500')),
     # fire: the state is an image, so z / z_hat are the policy's own conv latent of the true / received image
     'fire': dict(
         agents=['agent0', 'agent1', 'agent2', 'agent3'], p=2, adversary='fire', n_actions=10,
         success=fire_success, extras=[], latent=True, obs_range=30, blue=4, n_fire_pcs=20,
-        checkpoint='logs/marl/fire_fully_obs/checkpoint5000'),
+        checkpoint=os.path.join(MODELS_ROOT, 'marl', 'fire_fully_obs', 'checkpoint5000')),
     # market: one scalar (stockpile) per teammate, sorted because the belief's teammate slots are permutation
     # invariant; y is each company's (order, sell) fraction, decoded from the 13 x 51 flattened action
     'market_game': dict(
@@ -81,8 +94,10 @@ ENVS = {
         success=pp_success, extras=[], action_fractions=dict(n_sell=51, order_step=0.05, sell_step=0.02),
         sort_team=True, scale=100.0, units='material units',
         centroid_axes=("true teammates' average stockpile", "true spread (std) of teammates' stockpiles"),
-        checkpoint='logs/marl/market_game_7a_fully_obs/checkpoint829'),
+        checkpoint=os.path.join(MODELS_ROOT, 'marl', 'market_game_fully_obs', 'checkpoint829')),
 }
+for _env, _spec in ENVS.items():  # policy rollouts: RESULTS_ROOT/<env>/results_{fully_obs,allocentric,pf}
+    _spec['results_root'] = os.path.join(RESULTS_ROOT, _env)
 
 
 def title():
@@ -235,6 +250,16 @@ def load_fire_episode(path, max_steps=None, reference=False):
     out['success'] = SPEC['success'](d[str(steps_all[-1])])
     out['length'] = len(steps_all)
     return out
+
+
+def policy_checkpoint(args, data_dir):
+    """Fire: the policy checkpoint whose conv encoder defines the latent. --checkpoint if given; else data_dir when it
+    is a checkpoint (results inside it, the old layout); else the env's checkpoint in ENVS."""
+    if getattr(args, 'checkpoint', None):
+        return args.checkpoint
+    if os.path.exists(os.path.join(data_dir, 'rllib_checkpoint.json')):
+        return data_dir
+    return SPEC['checkpoint']
 
 
 def load_fire_policy(checkpoint_dir, device):
@@ -588,7 +613,7 @@ def fire_latent_scale(workers=48, device='cuda', limit=None):
     the fully-observed data (units that never activate dropped). Noise sigma = level x this, in the evaluation
     (belief_noise_sweep.py --latent) and in the analysis (run_sweep)."""
     SPEC.update(ENVS['fire'])
-    d = os.path.join(SPEC['checkpoint'], CHECKPOINT_FOLDERS['fully_obs'])
+    d = result_dirs(SPEC['results_root'])['fully_obs']
     eps = load_fire_raw(d, workers, 200, limit, True)
     model, encoder = load_fire_policy(SPEC['checkpoint'], device)
     return float(fire_sets(eps, d, True, model, encoder, device)['z'].std(0).mean())
@@ -603,7 +628,7 @@ def run_sweep(runs, fo_dir, args):
     if latent:
         raw_fo = load_fire_raw(fo_dir, args.workers, args.max_steps, args.limit_episodes, True)
         raw_runs = [load_fire_raw(d, args.workers, args.max_steps, args.limit_episodes, False) for _, d in runs]
-        model, encoder = load_fire_policy(os.path.dirname(fo_dir.rstrip('/')), args.device)
+        model, encoder = load_fire_policy(policy_checkpoint(args, os.path.dirname(fo_dir.rstrip('/'))), args.device)
         fo = fire_sets(raw_fo, fo_dir, True, model, encoder, args.device)
         scale = float(fo['z'].std(0).mean())
     else:
@@ -639,9 +664,32 @@ def run_sweep(runs, fo_dir, args):
             physical = {g: r2_along(err @ Bg, s['z'] @ Bg) for g, Bg in B.items()}
         out['runs'][label] = dict(dir=d, weighted_coverage=wc, physical=physical, weighted_coverage_ci=np.percentile(boot, [2.5, 97.5]).tolist(),
                                   task_r2=r.tolist(), success_rate=float(succ.mean()),
-                                  success_ci=np.percentile(succ_boot, [2.5, 97.5]).tolist(), n_episodes=len(succ))
+                                  success_ci=np.percentile(succ_boot, [2.5, 97.5]).tolist(), n_episodes=len(succ),
+                                  episode_success=ep[:, 2].astype(bool).tolist(),
+                                  episode_length=ep[:, 3].astype(int).tolist())
         print(f'{label}: weighted coverage {wc:.3f}, success {succ.mean():.3f} ({len(succ)} episodes)', flush=True)
     return out
+
+
+def save_sweep_npz(res, folder, noise=''):
+    """One .npz per sweep run in folder (allocentric_sigma_<level>.npz, egocentric.npz), replacing files of the same
+    name; the noise-sweep figure (plot_cca_analysis.py --sweep <folder>) reads this folder."""
+    os.makedirs(folder, exist_ok=True)
+    for label, v in res['runs'].items():
+        method = 'egocentric' if label == 'egocentric' else 'allocentric'
+        level = 0.0 if method == 'egocentric' else float(label.split(':')[1])
+        name = 'egocentric' if method == 'egocentric' else f'allocentric_sigma_{level:g}'
+        phys = v.get('physical', {})
+        np.savez(os.path.join(folder, f'{name}.npz'),
+                 method=method, noise_level=level, noise=noise,
+                 weighted_r2=v['weighted_coverage'], weighted_r2_ci=np.array(v['weighted_coverage_ci']),
+                 task_r2=np.array(v['task_r2']), task_eig=np.array(res['task_eig']),
+                 success_rate=v['success_rate'], success_ci=np.array(v['success_ci']),
+                 physical_names=np.array(list(phys)), physical_r2=np.array(list(phys.values()), dtype=float),
+                 episode_success=np.array(v['episode_success'], dtype=bool),
+                 episode_length=np.array(v['episode_length'], dtype=int), n_episodes=v['n_episodes'],
+                 results_dir=v['dir'])
+        print(f'saved {folder}/{name}.npz', flush=True)
 
 
 # ---------------------------------------------------------------- main
@@ -655,30 +703,40 @@ def main():
     p.add_argument('--workers', type=int, default=48)
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--limit-episodes', type=int, default=None, help='for testing only')
-    p.add_argument('--out-dir', default=None, help='default results/<env>/cca_final')
+    p.add_argument('--out-dir', default=None, help='default RESULTS_ROOT/<env>/cca')
     p.add_argument('--data-dir', default=None,
-                   help='checkpoint folder holding results/, results_allocentric/, results_pf/ '
-                        '(default: the final checkpoint in ENVS)')
+                   help='folder holding the results: a checkpoint (results/, results_allocentric/, results_pf/) or '
+                        'results/<env> (results_fully_obs/, ...) (default: RESULTS_ROOT/<env>)')
     p.add_argument('--device', default='cuda', help='fire only: device for the policy encoder')
+    p.add_argument('--checkpoint', default=None,
+                   help='fire only: policy checkpoint for the conv encoder (default: --data-dir when it is a '
+                        'checkpoint, else the checkpoint in ENVS); needed when the results live in results/<env>')
     p.add_argument('--sweep', nargs='+', default=None, metavar='LABEL=RESULTS_DIR',
                    help='belief-noise sweep: weighted task coverage and success of each results folder on the '
-                        'fully-observed task directions; writes sweep.json to --out-dir')
+                        'fully-observed task directions; writes sweep.json to --out-dir, or with --npz-dir one .npz '
+                        'per run into that folder (replacing same-named files)')
+    p.add_argument('--npz-dir', default=None, help='sweep: folder for the per-run .npz files (e.g. '
+                                                  'results/<env>/noise_sweep/noise_sweep_results)')
+    p.add_argument('--noise', default='', help='sweep: description of the noise, stored in each .npz')
     p.add_argument('--figdata-only', action='store_true',
                    help='only rewrite episode_r2.npz, projections.npz and centroid.npz '
                         '(no bootstrap, keeps the existing summary)')
     args = p.parse_args()
 
     SPEC.update(ENVS[args.env])
-    out_dir = args.out_dir or os.path.join('results', args.env, 'cca_final')
+    out_dir = args.out_dir or os.path.join(RESULTS_ROOT, args.env, 'cca')
     os.makedirs(out_dir, exist_ok=True)
-    data_dir = args.data_dir or SPEC['checkpoint']
-    dirs = {m: os.path.join(data_dir, CHECKPOINT_FOLDERS[m]) for m in METHODS}
+    data_dir = args.data_dir or SPEC['results_root']
+    dirs = {m: d for m, d in result_dirs(data_dir).items() if m in METHODS}
 
     if args.sweep:
         res = run_sweep([tuple(r.split('=', 1)) for r in args.sweep], dirs['fully_obs'], args)
-        with open(os.path.join(out_dir, 'sweep.json'), 'w') as f:
-            json.dump(res, f, indent=1)
-        print(f'saved {out_dir}/sweep.json', flush=True)
+        if args.npz_dir:
+            save_sweep_npz(res, args.npz_dir, args.noise)
+        else:
+            with open(os.path.join(out_dir, 'sweep.json'), 'w') as f:
+                json.dump(res, f, indent=1)
+            print(f'saved {out_dir}/sweep.json', flush=True)
         print('SWEEP DONE', flush=True)
         return
 
@@ -687,7 +745,7 @@ def main():
         # read every method's episodes before loading the policy, so the worker pool never forks a CUDA process
         raw = {m: load_fire_raw(dirs[m], args.workers, args.max_steps, args.limit_episodes, m == 'fully_obs')
                for m in METHODS}
-        model, encoder = load_fire_policy(data_dir, args.device)
+        model, encoder = load_fire_policy(policy_checkpoint(args, data_dir), args.device)
     for m in METHODS:  # fully_obs first: it fixes the reference (and, for fire, the latent units kept)
         if SPEC.get('latent'):
             sets[m] = fire_sets(raw.pop(m), dirs[m], m == 'fully_obs', model, encoder, args.device)

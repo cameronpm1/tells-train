@@ -9,18 +9,24 @@ import yaml
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from envs.marl.fire_env import DroneFireEnv
-from overlay_plot_fire import load_episode_positions, load_episode_beliefs
+from loaders import load_fire_positions as load_episode_positions, load_fire_beliefs as load_episode_beliefs
+from util.util import find_run_config, RESULTS_ROOT
+
+# bold text for every figure (set at import, so modules that import this one get it too)
+plt.rcParams['font.weight'] = 'bold'
+plt.rcParams['axes.titleweight'] = 'bold'
+plt.rcParams['axes.labelweight'] = 'bold'
 
 
-RESULTS_DIR = '/home/cameron/tells/logs/marl/fire_fully_obs/checkpoint5000/results_allocentric'
-RESULTS_PF_DIR = '/home/cameron/tells/logs/marl/fire_fully_obs/checkpoint5000/results_pf'
-BELIEF_ERROR_SAVE_PATH = '/home/cameron/tells/test_fire_belief_error.png'
-DECOMPOSED_REWARD_SAVE_PATH = '/home/cameron/tells/test_fire_decomposed_reward.png'
-ESTIMATE_VARIANCE_SAVE_PATH = '/home/cameron/tells/test_fire_estimate_variance.png'
-COMBINED_SAVE_PATH = '/home/cameron/tells/test_fire_combined_metrics.png'
+RESULTS_DIR = os.path.join(RESULTS_ROOT, 'fire', 'results_allocentric')
+RESULTS_PF_DIR = os.path.join(RESULTS_ROOT, 'fire', 'results_pf')
+BELIEF_ERROR_SAVE_PATH = os.path.join(RESULTS_ROOT, 'fire', 'belief_error.png')
+DECOMPOSED_REWARD_SAVE_PATH = os.path.join(RESULTS_ROOT, 'fire', 'decomposed_reward.png')
+ESTIMATE_VARIANCE_SAVE_PATH = os.path.join(RESULTS_ROOT, 'fire', 'estimate_variance.png')
+COMBINED_SAVE_PATH = os.path.join(RESULTS_ROOT, 'fire', 'combined_metrics.png')
 
 # mean decomposed reward over 500 controller-driven episodes
 # (evals/marl/collect_fire_decomposed_rewards.py), with terminal
@@ -40,15 +46,11 @@ def list_episodes(results_dir: str):
 
 def load_controller_cfg(results_dir: str) -> dict:
     '''
-    walk up from a checkpoint's results dir (<run_dir>/<checkpoint>/results)
-    to the run's config.yaml and pull out env.controller_kwargs - needed to
+    the run's config.yaml for a results dir (util.util.find_run_config: next to it in
+    results/<env>, or two levels up in the logs layout) and pull out env.controller_kwargs - needed to
     recompute min_slot_dist the same way DroneFireEnv.decompose_reward does
     '''
-    checkpoint_dir = os.path.dirname(os.path.normpath(results_dir))
-    run_dir = os.path.dirname(checkpoint_dir)
-    config_path = os.path.join(run_dir, 'config.yaml')
-
-    with open(config_path, 'r') as stream:
+    with open(find_run_config(results_dir), 'r') as stream:
         cfg = yaml.safe_load(stream)
 
     return cfg['env'].get('controller_kwargs', {})
@@ -99,7 +101,7 @@ def compute_decomposed_reward(decomposed_obs: dict, fire_grid: np.ndarray, rewar
 def belief_error_by_step(results_dir: str, episode: int, permutation_invariant: bool = True) -> dict:
     '''
     load a single episode's eval results and, for each step, compute each
-    drone's individual belief error the same way overlay_plot_fire does:
+    drone's individual belief error the same way loaders.load_fire_beliefs does:
     reconstruct absolute ground-truth drone positions (load_episode_positions)
     and each observer's believed absolute position of its teammates
     (load_episode_beliefs), then take the position error between them for
@@ -108,7 +110,7 @@ def belief_error_by_step(results_dir: str, episode: int, permutation_invariant: 
     unlike predator_prey_evaluate.py/drones_evaluate.py, this does NOT need
     a separate direct-vs-swapped matching step here: load_episode_beliefs
     already resolves each predicted slot to a specific teammate name itself
-    (overlay_plot_fire._best_teammate_permutation) when permutation_invariant
+    (loaders._fire_best_teammate_permutation) when permutation_invariant
     is True - the right setting for the allocentric NN belief model, which
     (like drones/predator_prey, unlike football) doesn't commit its output
     to a fixed teammate-slot order

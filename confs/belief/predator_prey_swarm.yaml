@@ -13,7 +13,7 @@ model_name: 'predator_prey_swarm_NN'
 input_channels: 45
 output_channels: 10
 data_dir: 'data/'
-data_name: 'predator_prey_swarm_40a_fully_obs'
+data_name: 'predator_prey_swarm_fully_obs'
 lr_schedule: [200, 500, 1000, 2000, 3000]
 epochs: 4000
 

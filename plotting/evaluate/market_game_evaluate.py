@@ -10,15 +10,16 @@ import yaml
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from envs.marl.market_game_env import MarketGameEnv
+from util.util import find_run_config, RESULTS_ROOT
 from predator_prey_evaluate import list_episodes, _draw_average_with_std, _set_endpoint_yticks, plot_average_with_std
 
 
-RESULTS_DIR = '/home/cameron/tells/logs/marl/market_game_7a_fully_obs/checkpoint829/results_allocentric'
-RESULTS_PF_DIR = '/home/cameron/tells/logs/marl/market_game_7a_fully_obs/checkpoint829/results_pf'
-SAVE_DIR = '/home/cameron/tells/results/market_game'
+RESULTS_DIR = os.path.join(RESULTS_ROOT, 'market_game', 'results_allocentric')
+RESULTS_PF_DIR = os.path.join(RESULTS_ROOT, 'market_game', 'results_pf')
+SAVE_DIR = os.path.join(RESULTS_ROOT, 'market_game')
 
 # mean decomposed reward over 500 controller-driven episodes of the 7 company game (logs/marl/market_game_7a_fully_obs
 # config), with the terminal step of episodes that end early (a company dies or the team falls under rho) filtered out
@@ -28,11 +29,10 @@ CONTROLLER_MEAN_DECOMPOSED_REWARD = 0.140489
 
 def load_env_stub(results_dir: str, obs_map: dict) -> SimpleNamespace:
     '''
-    walk up from a checkpoint's results dir (<run_dir>/<checkpoint>/results) to the run's config.yaml and build the
-    attributes MarketGameEnv.decompose_reward reads, so it can be called unbound on logged observations
+    find the run's config.yaml for a results dir (util.util.find_run_config) and build the attributes
+    MarketGameEnv.decompose_reward reads, so it can be called unbound on logged observations
     '''
-    checkpoint_dir = os.path.dirname(os.path.normpath(results_dir))
-    with open(os.path.join(os.path.dirname(checkpoint_dir), 'config.yaml'), 'r') as stream:
+    with open(find_run_config(results_dir), 'r') as stream:
         cfg = yaml.safe_load(stream)
 
     env_cfg = cfg['env']

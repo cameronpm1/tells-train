@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'evaluate'))
 
 import drones_evaluate
 import fire_evaluate
@@ -80,7 +81,7 @@ def matched_belief_error_by_step(module, results_dir: str, episode: int) -> dict
     DronesPermutationInvariantMSE in learn/belief/models.py), the model's
     per-teammate slots aren't guaranteed to stay in a fixed order - so the
     plain belief_error_by_step in predator_prey_evaluate.py/drones_evaluate.py
-    (which zips slots to teammates via overlay_plot_*.load_episode_beliefs's
+    (which zips slots to teammates via loaders.load_<env>_beliefs's
     FIXED order) can silently mislabel a teammate whenever the model
     outputs its 2 slots swapped, inflating the reported error for the
     allocentric NN model specifically (PF's sampled_predictions slots are
@@ -159,6 +160,20 @@ def mean_std(values):
     return float(np.mean(values)), float(np.std(values))
 
 
+def wilson_interval(successes: int, n: int, z: float = 1.959964):
+    '''
+    Wilson score interval for a binomial proportion (95% for the default z): unlike the normal approximation it
+    stays inside [0, 1] and keeps a sensible width when the success rate is near 0 or 1
+    '''
+    if n == 0:
+        return None
+    p = successes / n
+    denom = 1 + z ** 2 / n
+    center = (p + z ** 2 / (2 * n)) / denom
+    half = z * np.sqrt(p * (1 - p) / n + z ** 2 / (4 * n ** 2)) / denom
+    return float(center - half), float(center + half)
+
+
 def analyze_result_dir(env_name: str, module, results_dir: str, permutation_invariant: bool) -> dict:
     '''
     compute every key metric (episode length, episode reward, success rate,
@@ -171,7 +186,8 @@ def analyze_result_dir(env_name: str, module, results_dir: str, permutation_inva
     -------
     dict: metric name -> (mean, std) across episodes, or None if the metric
         isn't defined for this env (e.g. fire's success rate) or no episode
-        produced a value for it
+        produced a value for it; plus 'success_ci95', the (low, high) Wilson
+        95% interval of the success rate
     '''
     episodes = list_episodes(results_dir)
     belief_error_fn, decomposed_reward_fn, estimate_variance_fn = get_metric_fns(
@@ -206,6 +222,7 @@ def analyze_result_dir(env_name: str, module, results_dir: str, permutation_inva
         'episode_length': mean_std(lengths),
         'episode_reward': mean_std(rewards),
         'success_rate': mean_std(successes),
+        'success_ci95': wilson_interval(int(np.sum(successes)), len(successes)) if successes else None,
         'belief_error': mean_std(belief_errors),
         'belief_variance': mean_std(variances),
         'decomposed_reward': mean_std(decomposed_rewards),
@@ -239,7 +256,11 @@ def format_report(all_stats: dict) -> str:
                         lines.append(f'  {label}: n/a')
                         continue
                     mean, std = value
-                    lines.append(f'  {label}: {mean:.4f} +/- {std:.4f}')
+                    line = f'  {label}: {mean:.4f} +/- {std:.4f}'
+                    if key == 'success_rate' and stats.get('success_ci95') is not None:
+                        lo, hi = stats['success_ci95']
+                        line += f'  (Wilson 95% CI [{lo:.4f}, {hi:.4f}])'
+                    lines.append(line)
         lines.append('')
 
     return '\n'.join(lines)
@@ -249,7 +270,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--save-path', type=str, default=None,
                          help='if given, also write the report to this text file')
+    parser.add_argument('--envs', nargs='+', default=list(SUCCESS_RULES), choices=list(SUCCESS_RULES))
+    parser.add_argument('--results-root', type=str, default=None,
+                        help='folder holding results_allocentric/ and results_pf/ (one env only; '
+                             'default: the RESULTS_DIR / RESULTS_PF_DIR of the env\'s evaluate module)')
     args = parser.parse_args()
+    if args.results_root and len(args.envs) != 1:
+        parser.error('--results-root needs exactly one env in --envs')
 
     # same RESULTS_DIR / RESULTS_PF_DIR constants (and, for fire, the
     # Allocentric-vs-PF permutation_invariant handling) each *_evaluate.py's
@@ -272,6 +299,13 @@ if __name__ == '__main__':
             'PF': (fire_evaluate.RESULTS_PF_DIR, False),
         }),
     }
+
+    env_configs = {env: env_configs[env] for env in args.envs}
+    if args.results_root:
+        (env_name, (module, sources)), = env_configs.items()
+        folders = {'Allocentric': 'results_allocentric', 'PF': 'results_pf'}
+        env_configs[env_name] = (module, {label: (os.path.join(args.results_root, folders[label]), perm)
+                                          for label, (_, perm) in sources.items()})
 
     all_stats = {}
     for env_name, (module, sources) in env_configs.items():

@@ -221,7 +221,7 @@ if __name__ == "__main__":
 
             eval(args.config,args.model_dir)
 
-    elif 'pf_eval' == args.command:
+    elif 'ego_eval' == args.command:
 
         configure_marl_runtime(args)
         from evals.marl.eval_pf import eval
@@ -237,7 +237,7 @@ if __name__ == "__main__":
             n_workers=args.n_workers,
         )
 
-    elif 'pf_train' == args.command:
+    elif 'ego_train' == args.command:
 
         configure_marl_runtime(args)
         from learn.marl.train_pf import train

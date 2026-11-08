@@ -1,7 +1,7 @@
 seed: &seed 22 # set experiment seed
 timestep: &timestep 1.0  #20
 horizon: &horizon 10 #10
-logdir: /home/cameron/tells/logs/marl/football1
+logdir: logs/marl/football1
 notes: multi agent trainging, diff initialization, no curriculum, smallest initiallization 2
 
 alg:
@@ -16,7 +16,7 @@ alg:
   num_gpus: 0
   pi : [512, 512, 512]
   vf : [512, 512, 512]
-  timesteps: 5000
+  timesteps: 3000
   checkpoint_freq: 250
   minibatch_size: 512
   num_epochs: 3

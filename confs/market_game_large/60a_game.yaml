@@ -1,7 +1,7 @@
 seed: &seed 23 # set experiment seed
 horizon: &horizon 10
 min_obs: 10
-logdir: logs/marl/market_game_large_60a_fully_obs3
+logdir: logs/marl/market_game_large_fully_obs
 notes: large market game (equal split with sell cap), 60 companies vs 1 supplier, teammates observed through stockpile quantiles with noise
 
 alg:
@@ -16,7 +16,7 @@ alg:
   num_gpus: 1
   pi : [256, 256, 256]
   vf : [256, 256, 256]
-  timesteps: 3000
+  timesteps: 250
   checkpoint_freq: 50
   minibatch_size: 512
   num_epochs: 3

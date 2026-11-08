@@ -5,6 +5,17 @@ import shutil
 import imageio
 import numpy as np
 
+# repo layout: this code lives in tells_results/tells-train, next to tells_results/{results,models,videos}.
+#   RESULTS_ROOT/<env>/results_{fully_obs,allocentric,pf}/, config.yaml, cca/, noise_sweep/
+#   MODELS_ROOT/marl/<run>/checkpoint<N>/            decentralized fully observable policies
+#   MODELS_ROOT/belief/_<run>_NN_<i>/epoch<N>/*.ckpt belief models
+# set TELLS_RESULTS to use a tells_results folder somewhere else.
+CODE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TELLS_ROOT = os.path.abspath(os.environ.get('TELLS_RESULTS', os.path.dirname(CODE_ROOT)))
+RESULTS_ROOT = os.path.join(TELLS_ROOT, 'results')
+MODELS_ROOT = os.path.join(TELLS_ROOT, 'models')
+VIDEOS_ROOT = os.path.join(TELLS_ROOT, 'videos')
+
 def mkdir(folder):
     if os.path.islink(folder):
         # keep the symlink, clear the contents of its target
@@ -46,7 +57,8 @@ def save_argb_video(images, output_path, fps=30):
 def save_rgb_gif(images, output_path, fps=10, loop=None):
     '''loop: number of times the gif repeats (0 = forever); None writes no loop setting, so viewers play it once'''
 
-    duration = 1 / fps  # seconds per frame
+    duration = 1000 / fps  # milliseconds per frame: imageio >= 2.28 (pillow plugin) reads GIF duration in ms, so the
+    # old value 1 / fps (seconds) was written as 0 ms and viewers played the GIF as fast as they could
     kwargs = {} if loop is None else {'loop': loop}
     imageio.mimsave(output_path, images, duration=duration, **kwargs)
 
@@ -110,3 +122,16 @@ def furthest_point(xy, vw, x0y0, d):
 
     return np.array([x + t_max * v, y + t_max * w])
 
+
+def find_run_config(results_dir: str) -> str:
+    '''
+    path of the training run's config.yaml for an evaluation results dir: results/<env>/config.yaml next to
+    results/<env>/results_<mode>, else the run dir two levels up in the logs layout
+    (<run_dir>/<checkpoint>/results_<mode>)
+    '''
+    results_dir = os.path.normpath(results_dir)
+    for candidate in (os.path.join(os.path.dirname(results_dir), 'config.yaml'),
+                      os.path.join(os.path.dirname(os.path.dirname(results_dir)), 'config.yaml')):
+        if os.path.exists(candidate):
+            return candidate
+    raise FileNotFoundError(f'no config.yaml next to or two levels above {results_dir}')

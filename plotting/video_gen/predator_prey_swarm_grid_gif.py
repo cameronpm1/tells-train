@@ -10,14 +10,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from envs.marl.make_env import make_marl_env
 from learn.marl.train import make_ray_config
 from controllers.predator_prey_swarm_control import compute_slot_actions
-from evals.marl.predator_prey_grid_gif import build_grid, run_episode, search_seeds
-from util.util import load_config, save_rgb_gif
+from plotting.video_gen.predator_prey_grid_gif import build_grid, run_episode, search_seeds
+from util.util import load_config, save_rgb_gif, MODELS_ROOT
 
 
-CHECKPOINT_DIR = 'logs/marl/predator_prey_swarm_40a_fully_obs/checkpoint250'
+CHECKPOINT_DIR = os.path.join(MODELS_ROOT, 'marl', 'predator_prey_swarm_fully_obs/checkpoint250')
 BELIEF_CONFIG = 'confs/belief/predator_prey_swarm.yaml'
-BELIEF_DIR = ('logs/belief/_predator_prey_swarm_40a_fully_obs_predator_prey_swarm_NN_1/'
-              'lightning_logs/checkpoints/{epoch}_{val_loss}')
+BELIEF_DIR = os.path.join(MODELS_ROOT, 'belief', '_predator_prey_swarm_fully_obs_NN_1/epoch2051')
 FULLY_OBS_CONFIG = 'confs/predator_prey_swarm/40a_game.yaml'
 ALLOCENTRIC_CONFIG = 'confs/predator_prey_swarm/40a_game_allocentric.yaml'
 

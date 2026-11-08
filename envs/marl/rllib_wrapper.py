@@ -105,6 +105,9 @@ class RLLibWrapper(MultiAgentEnv):
                 for agent in self.agents:
                     target_noise = np.random.normal(0, self.noise['target'], size=self.dim,)
                     obs[agent][self.env.obs_map['target_pos']] = obs[agent][self.env.obs_map['target_pos']] + target_noise
+                    if self.noise.get('demand') and 'demand' in self.env.obs_map:  # market noise sweep: observed demand
+                        d = self.env.obs_map['demand']
+                        obs[agent][d] = obs[agent][d] + np.random.normal(0, self.noise['demand'], size=d.stop - d.start)
                     if not self.belief:
                         team_old = self.temp_noise.get(agent, {}).get('team', np.zeros(team_size))
                         team_noise = np.random.normal(0, self.noise['team'], size=team_size,)
@@ -193,6 +196,14 @@ class RLLibWrapper(MultiAgentEnv):
                     obs[agent] = self.obs_history[-1][agent]['pred']
             else:
                 obs = self.obs_history[-1]
+                # noise sweep (football): Gaussian noise on the belief's predicted ball position, i.e. on the ball the
+                # policy receives (the observed ball is replaced by the prediction), like the opponent's noise
+                ball_noise = self.belief_kwargs.get('ball_noise', 0.0)
+                if ball_noise and 'football' in self.name:
+                    obs = deepcopy(obs)  # keep the belief's history clean
+                    for agent in self.agents:
+                        obs[agent][self.env.obs_map['ball_pos']] = (obs[agent][self.env.obs_map['ball_pos']]
+                                                                   + np.random.normal(0, ball_noise, size=self.dim))
         return obs,rew,terminated,truncated,infos
     
     def _fire_history_entry(self, decomposed_obs):

@@ -9,7 +9,7 @@ from munch import munchify
 from datetime import datetime
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from learn.belief.belief_model import BeliefModel
 
@@ -65,6 +65,11 @@ def train(config_filepath, belief_dir: str = None, lr: float = None):
         monitor='val_loss',
         mode='min')
 
+    # optional early stop (config early_stop_patience, in epochs): the best checkpoint above is still the one kept
+    callbacks = [checkpoint_callback]
+    if cfg.get('early_stop_patience'):
+        callbacks.append(EarlyStopping(monitor='val_loss', mode='min', patience=int(cfg.early_stop_patience)))
+
     #setup tensorboard logger
     now = datetime.now()
     dt_string = now.strftime('%d'+'_'+'%m'+'_'+'%Y'+'_'+'%H:%M:%S')
@@ -80,7 +85,7 @@ def train(config_filepath, belief_dir: str = None, lr: float = None):
                       accelerator='cuda',
                       default_root_dir=log_dir,
                       val_check_interval=1.0,
-                      callbacks=checkpoint_callback
+                      callbacks=callbacks
                       )
 
     trainer.fit(model)

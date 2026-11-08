@@ -177,6 +177,7 @@ def eval_worker(
         belief_kwargs['input_noise'] = cfg.get('belief_input_noise', 0.0)
         belief_kwargs['input_noise_skip'] = cfg.get('belief_input_noise_skip', [])
         belief_kwargs['image_noise'] = cfg.get('fire_image_noise', 0.0)
+        belief_kwargs['ball_noise'] = cfg.get('belief_ball_noise', 0.0)
     else:
         belief_kwargs['on'] = False
 

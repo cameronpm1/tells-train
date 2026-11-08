@@ -13,6 +13,6 @@ model_name: 'market_game_large_NN'
 input_channels: 85
 output_channels: 10
 data_dir: 'data/'
-data_name: 'market_game_large_60a_fully_obs'
+data_name: 'market_game_large_fully_obs'
 lr_schedule: [200, 500, 1000, 2000, 3000]
 epochs: 4000

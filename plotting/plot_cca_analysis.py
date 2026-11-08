@@ -1,45 +1,36 @@
-"""Figures for evals/marl/cca_analysis.py (see evals/marl/CCA_ANALYSIS.md): every method on the same
-axes, scored against the truth. The figures used are task_ridgeline.png and centroid_map.png.
+"""Paper figures for evals/marl/cca_analysis.py, scored against the truth
+as raw R^2 = 1 - MSE / var(truth) of each belief's own estimate - exactly what the policy receives, no fitting.
 
-All values are raw R^2 = 1 - MSE / var(truth) of each belief's own estimate against the true
-state - exactly what the policy receives, no fitting. Violins show the episode-bootstrap
-distribution; the white dot is the full-data estimate. R^2 axes are cut at -1.
-
-fixed_axis.png            R^2 along each policy task direction (fixed by the true model),
-                          on the physical components (centroid, spread, adversary, ball) and
-                          the mean over the task directions
-fixed_axis_spectrum.png   top: the FO policy task eigenvalues (how much its actions depend on each
-                          direction); bottom: each method's R^2 along those same directions
-pred_vs_true.png          truth vs the raw belief along the policy task directions
-centroid_map.png          local R^2 of the belief's teammate centroid over the true centroid
-                          position (x, y relative to the agent)
-task_ridgeline.png        one row per policy task eigenvector: distribution over episodes of
-                          each belief's per-episode R^2 along it
-task_error_ridgeline.png  same rows: distribution of each belief's raw error (estimate - truth)
-actions.png               action agreement (action taken from the agent's own observation ==
-                          the same policy's action on the true observation) and success rate
+centroid_map.png    local R^2 of the belief's teammate centroid over the true centroid position
+                    (x, y relative to the agent)
+task_ridgeline.png  one row per policy task eigenvector: distribution over episodes of each belief's
+                    per-episode R^2 along it
+noise_sweep.png     (--sweep) weighted task R^2 against success rate across belief-noise levels
 
 Usage:
-    python plotting/plot_cca_analysis.py --in-dir results/football/cca_final
+    python plotting/plot_cca_analysis.py --in-dir results/football/cca
+    python plotting/plot_cca_analysis.py --sweep results/football/noise_sweep/sweep.json
+    python plotting/plot_cca_analysis.py --sweep-combined   # -> results/noise_sweep_combined.png
 """
 import argparse
 import json
 import os
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
-METHODS = ['fully_obs', 'allocentric', 'pf']
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from util.util import RESULTS_ROOT  # noqa: E402
+
 LABELS = {'fully_obs': 'Fully observed', 'allocentric': 'Allocentric', 'pf': 'PF'}
 COLORS = {'fully_obs': '#1baf7a', 'allocentric': '#2a78d6', 'pf': '#eb6834'}
 TEXT, TEXT_2, GRID, SURFACE = '#0b0b0b', '#52514e', '#e4e3df', '#fcfcfb'
 BLUE_RAMP = LinearSegmentedColormap.from_list(
     'blue', ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'])
-KIND = 'raw'
 RIDGE_METHODS = ['allocentric', 'pf']  # ridgelines compare the two beliefs only
 FLOOR = -1.0  # R^2 axes are cut here (raw R^2 is unbounded below)
-WIDTH = 0.26
 # ridgeline layout (data units): row spacing, curve height, and how far the back curve (PF) sits
 # above the front one (allocentric) within a row - vertical only, so x values stay exact
 RIDGE_STEP, RIDGE_H, RIDGE_DEPTH = 0.62, 0.5, 0.0
@@ -81,246 +72,6 @@ def style(ax):
     ax.yaxis.grid(True, color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
     ax.axhline(0, color='#c9c8c3', linewidth=1)
-
-
-def violins(ax, samples, estimate, labels, colors=None):
-    """samples: dict method -> (n_boot, n_axes); estimate: dict method -> (n_axes,)."""
-    x = np.arange(len(labels))
-    keys = list(samples)
-    for j, m in enumerate(keys):
-        xs = x + (j - (len(keys) - 1) / 2) * WIDTH
-        data = np.asarray(samples[m], dtype=float)
-        data = data.reshape(len(data), -1)
-        for k, xi in enumerate(xs):
-            col = data[:, k]
-            if np.ptp(col) < 1e-9:  # constant (e.g. perfect observer): draw a flat tick
-                ax.plot([xi - WIDTH * 0.4, xi + WIDTH * 0.4], [col[0]] * 2, color=(colors or COLORS)[m], lw=3)
-                continue
-            parts = ax.violinplot(col, positions=[xi], widths=WIDTH * 0.9, showextrema=False)
-            for b in parts['bodies']:
-                b.set_facecolor((colors or COLORS)[m])
-                b.set_edgecolor((colors or COLORS)[m])
-                b.set_alpha(0.85)
-        est = np.asarray(estimate[m], dtype=float).ravel()
-        ax.scatter(xs, np.maximum(est, FLOOR), s=14, color=SURFACE, edgecolors=TEXT, linewidths=0.8, zorder=5)
-        for xi, v in zip(xs, est):
-            if v < FLOOR:  # below the axis cut: label the value at the bottom edge
-                ax.text(xi, FLOOR + 0.03, f'{v:.1f}', ha='center', va='bottom', fontsize=6.5, color=TEXT, rotation=90)
-    ax.set_xticks(x, labels, fontsize=8)
-
-
-def set_ylim(ax, *arrays):
-    lo = min(np.nanmin(np.asarray(a, dtype=float)) for a in arrays)
-    ax.set_ylim(max(FLOOR, min(0, lo - 0.05)), 1.05)
-
-
-def legend(ax):
-    handles = [plt.Rectangle((0, 0), 1, 1, color=COLORS[m]) for m in METHODS]
-    handles.append(plt.Line2D([], [], marker='o', ls='', ms=5, color=SURFACE, markeredgecolor=TEXT, mew=0.8))
-    ax.legend(handles, [LABELS[m] for m in METHODS] + ['full-data estimate'], loc='lower left', frameon=True,
-              facecolor=SURFACE, edgecolor=GRID, fontsize=8, labelcolor=TEXT)
-
-
-def group_names(meta):
-    return {'adversary': meta['adversary'], 'difference': 'spread' if meta['n_teammates'] > 2 else 'difference'}
-
-
-def plot_main(S, B, path):
-    e, meta = S['estimate'], S['meta']
-    r = e['r_ref']
-    names = group_names(meta)
-
-    def comp(k):
-        return describe(S['task_composition'], k, names, sep='\n')
-
-    task_labels = [f'task dir {k + 1}\nσ² {e["task_eig"][k]:.2f}\n{comp(k)}' for k in range(r)]
-    groups = list(e['fully_obs'][KIND]['physical'])
-
-    fig, axes = plt.subplots(1, 3, figsize=(min(19, max(14, 1.6 * r + 1.6 * len(groups) + 3)), 6.8),
-                             facecolor=SURFACE, gridspec_kw=dict(width_ratios=[max(r, 2), len(groups), 1.3]))
-    # fixed margins (constrained layout can collapse with long tick labels and off-axis value labels)
-    fig.subplots_adjust(left=0.06, right=0.99, top=0.85, bottom=0.24, wspace=0.14)
-    for ax in axes:
-        style(ax)
-
-    task_s = {m: B[f'{m}/{KIND}/task'] for m in METHODS}
-    task_e = {m: e[m][KIND]['task'] for m in METHODS}
-    violins(axes[0], task_s, task_e, task_labels)
-    axes[0].set_title('policy task directions (same axes for every method)', fontsize=10, color=TEXT, loc='left')
-    axes[0].set_ylabel('R² against the true state', color=TEXT_2, fontsize=9)
-
-    phys_s = {m: np.column_stack([B[f'{m}/{KIND}/physical/{g}'] for g in groups]) for m in METHODS}
-    phys_e = {m: [e[m][KIND]['physical'][g] for g in groups] for m in METHODS}
-    violins(axes[1], phys_s, phys_e, [names.get(g, g) for g in groups])
-    axes[1].set_title('physical components', fontsize=10, color=TEXT, loc='left')
-
-    cov_s = {m: B[f'{m}/{KIND}/coverage'][:, None] for m in METHODS}
-    cov_e = {m: [e[m][KIND]['coverage']] for m in METHODS}
-    violins(axes[2], cov_s, cov_e, ['mean over\ntask directions'])
-    for j, m in enumerate(METHODS):
-        v = e[m][KIND]['coverage']
-        axes[2].text((j - 1) * WIDTH, v + 0.05, f'{v:.2f}', ha='center', fontsize=8, color=TEXT)
-    axes[2].set_title('task coverage', fontsize=10, color=TEXT, loc='left')
-
-    lows = [v for d in (task_s, phys_s, cov_s) for v in d.values()]
-    for ax in axes:
-        set_ylim(ax, *lows)
-    axes[2].set_ylim(axes[2].get_ylim()[0], 1.12)
-    handles = [plt.Rectangle((0, 0), 1, 1, color=COLORS[m]) for m in METHODS]
-    handles.append(plt.Line2D([], [], marker='o', ls='', ms=5, color=SURFACE, markeredgecolor=TEXT, mew=0.8))
-    fig.legend(handles, [LABELS[m] for m in METHODS] + ['full-data estimate'], loc='upper right', ncol=4,
-               bbox_to_anchor=(0.99, 0.95), frameon=False, fontsize=8.5, labelcolor=TEXT)
-    env = meta['env'].replace('_', '-').capitalize()
-    fig.suptitle(f'{env}: belief vs true state on fixed axes, {meta["title"]}, all agents',
-                 x=0.01, y=0.98, ha='left', fontsize=11, weight='bold', color=TEXT)
-    fig.text(0.01, 0.015, "R² = 1 - MSE / var(truth) of each belief's own estimate, exactly what the policy receives (no "
-             'fitting). Task directions come from the fully observed policy actions on the true state and are identical for every '
-             f'method.\nViolins: distribution over 100 episode-bootstrap resamples; dot: full-data estimate. '
-             f'Axis cut at {FLOOR:.0f}; values below it are printed at the bottom edge.', fontsize=7.5, color=TEXT_2)
-    fig.savefig(path, dpi=200, facecolor=SURFACE)
-    plt.close(fig)
-
-
-def plot_spectrum(S, B, path):
-    e, meta = S['estimate'], S['meta']
-    eig = np.array(e['task_eig_all'])
-    d, r = len(eig), e['r_ref']
-    comp_all = S['task_composition_all']
-    names = group_names(meta)
-    labels = []
-    for k in range(d):
-        if 'share' in comp_all:
-            top_share, top_group = max((comp_all['share'][g][k], g) for g in comp_all['share'])
-            labels.append(f'dir {k + 1}\n{100 * top_share:.0f}% {names.get(top_group, top_group)}')
-        else:
-            labels.append(f'dir {k + 1}')
-    fig, (ax0, ax1) = plt.subplots(2, 1, figsize=(max(10, 1.25 * d + 3), 7.2), facecolor=SURFACE, sharex=True,
-                                   gridspec_kw=dict(height_ratios=[1, 2.2]), layout='constrained')
-    for ax in (ax0, ax1):
-        style(ax)
-        ax.axvspan(-0.5, r - 0.5, color='#eef3fb', zorder=0)
-    violins(ax0, {'policy': B['task_eig_all']}, {'policy': eig}, labels, colors={'policy': '#8f8e89'})
-    ax0.axhline(0.1, color=TEXT_2, linestyle='--', linewidth=1)
-    for xi, v in enumerate(eig):
-        ax0.text(xi + 0.12, v, f'{v:.2f}', ha='left', va='center', fontsize=7.5, color=TEXT)
-    ax0.set_ylim(0, 1.1)
-    ax0.set_ylabel('FO policy\ntask eigenvalue σ²', color=TEXT_2, fontsize=9)
-    ax0.set_title('How much the FO policy actions depend on each direction (true state)', fontsize=10, color=TEXT,
-                  loc='left')
-    samples = {m: B[f'{m}/{KIND}/task_all'] for m in METHODS}
-    violins(ax1, samples, {m: e[m][KIND]['task_all'] for m in METHODS}, labels)
-    set_ylim(ax1, *samples.values())
-    ax1.set_ylabel('R² against the true state', color=TEXT_2, fontsize=9)
-    ax1.set_title('How well each belief reproduces the true state along the same directions', fontsize=10,
-                  color=TEXT, loc='left')
-    legend(ax1)
-    env = meta['env'].replace('_', '-').capitalize()
-    fig.suptitle(f'{env}: policy task eigenvalues and belief recovery on the same axes, {meta["title"]}',
-                 x=0.01, ha='left', fontsize=11, weight='bold', color=TEXT)
-    fig.supxlabel('Directions = eigenvectors of the policy task CCA (FO policy actions vs true state), identical for every method; '
-                  'shaded = above the rank cutoff σ² = 0.1 (dashed).\nR² of each belief\'s own estimate (no fitting). '
-                  f'Violins: distribution over 100 episode-bootstrap resamples; dot: full-data estimate. Axis cut at {FLOOR:.0f}.',
-                  fontsize=7.5, color=TEXT_2, x=0.01, ha='left')
-    fig.savefig(path, dpi=200, facecolor=SURFACE)
-    plt.close(fig)
-
-
-def describe(comp, k, names, sep=', '):
-    """Label for task direction k. comp['share']: '60% prey, 38% centroid' (geometric share of each physical
-    subspace); comp['explained'] (latent state, fire): 'R² from fire 0.62, teammates 0.46'."""
-    if 'share' in comp:
-        parts = sorted(((comp['share'][g][k], g) for g in comp['share']), reverse=True)
-        return sep.join(f'{100 * v:.0f}% {names.get(g, g)}' for v, g in parts if v >= 0.05)
-    parts = sorted(((comp['explained'][g][k], g) for g in comp['explained']), reverse=True)
-    return 'R² from ' + sep.join(f'{g} {v:.2f}' for v, g in parts)
-
-
-def composition(P):
-    """Row-label composition saved in projections.npz ('share/<group>' or 'explained/<group>')."""
-    out = {}
-    for key in P.files:
-        kind, _, g = key.partition('/')
-        if kind in ('share', 'explained'):
-            out.setdefault(kind, {})[g] = P[key]
-    return out
-
-
-def plot_pred_true(S, in_dir):
-    """Hexbin of the truth vs the raw belief along each task direction, one row per method."""
-    P = np.load(os.path.join(in_dir, 'projections.npz'))
-    meta = S['meta']
-    names = group_names(meta)
-    comp = composition(P)
-    n = P['functionals'].shape[1]
-    fig, axes = plt.subplots(3, n, figsize=(4.3 * n + 0.5, 12), facecolor=SURFACE, squeeze=False)
-    for k in range(n):
-        allv = np.concatenate([np.concatenate([P[f'{m}/actual'][:, k], P[f'{m}/belief'][:, k]]) for m in METHODS])
-        lim = np.percentile(allv, [0.5, 99.5])
-        for i, m in enumerate(METHODS):
-            ax = axes[i, k]
-            style(ax)
-            ax.yaxis.grid(False)
-            a, b = P[f'{m}/actual'][:, k], P[f'{m}/belief'][:, k]
-            ax.hexbin(a, b, gridsize=60, extent=(*lim, *lim), cmap=BLUE_RAMP, bins='log', mincnt=1, linewidths=0)
-            ax.plot(lim, lim, color=TEXT, linestyle='--', linewidth=1)
-            ax.text(0.03, 0.97, f'R² {1 - np.mean((b - a) ** 2) / np.var(a):.2f}\nbias {np.mean(b - a):+.2f}\n'
-                    f'RMSE {np.sqrt(np.mean((b - a) ** 2)):.2f}', transform=ax.transAxes, va='top', fontsize=8,
-                    color=TEXT)
-            ax.set_xlim(lim)
-            ax.set_ylim(lim)
-            ax.set_aspect('equal')
-            if i == 0:
-                ax.set_title(f'task dir {k + 1}  (σ² {P["task_eig"][k]:.2f})\n{describe(comp, k, names)}',
-                             fontsize=9, color=TEXT)
-            if i == 2:
-                ax.set_xlabel('true value (env units)', color=TEXT_2, fontsize=8)
-            if k == 0:
-                ax.set_ylabel(f'{LABELS[m]}\nbelief estimate (env units)', color=TEXT_2, fontsize=8)
-    env = meta['env'].replace('_', '-').capitalize()
-    fig.suptitle(f'{env}: belief vs truth along the policy task directions (fixed axes), {meta["title"]}',
-                 x=0.02, ha='left', fontsize=11, weight='bold', color=TEXT)
-    fig.text(0.02, 0.005, "Axes: projection of the true state (x) and of the belief's own estimate (y) onto each "
-             'policy task direction, identical for every method. R² = 1 - MSE / var(true), no fitting. '
-             'Dashed: perfect.', fontsize=7.5, color=TEXT_2)
-    fig.tight_layout(rect=(0, 0.015, 1, 0.97))
-    fig.savefig(os.path.join(in_dir, 'pred_vs_true.png'), dpi=200, facecolor=SURFACE)
-    plt.close(fig)
-
-
-def plot_actions(S, in_dir):
-    path = os.path.join(in_dir, 'bootstrap_actions.npz')
-    if 'actions' not in S or not S['actions'] or not os.path.exists(path):
-        return
-    B = np.load(path)
-    methods = [m for m in METHODS if m in S['actions']]
-    panels = [('action_agreement', 'action agreement with the\ntrue-observation policy',
-               'same action as the policy on the true observation'),
-              ('success_rate', 'success rate', 'fraction of episodes that succeed')]
-    fig, axes = plt.subplots(1, 2, figsize=(9, 4.4), facecolor=SURFACE, layout='constrained')
-    for ax, (key, title, ylabel) in zip(axes, panels):
-        style(ax)
-        samples = {m: B[f'actions/{m}/{key}'][:, None] for m in methods}
-        est = {m: [S['actions'][m][key]] for m in methods}
-        violins(ax, samples, est, [''])
-        for j, m in enumerate(methods):
-            v = S['actions'][m][key]
-            ax.text((j - (len(methods) - 1) / 2) * WIDTH, v + 0.04, f'{v:.0%}', ha='center', fontsize=9, color=TEXT)
-        ax.set_xticks([])
-        ax.set_ylim(0, 1.1)
-        ax.set_title(title, fontsize=10, color=TEXT, loc='left')
-        ax.set_ylabel(ylabel, color=TEXT_2, fontsize=8)
-    handles = [plt.Rectangle((0, 0), 1, 1, color=COLORS[m]) for m in methods]
-    axes[1].legend(handles, [LABELS[m] for m in methods], loc='upper right', frameon=False, fontsize=8,
-                   labelcolor=TEXT)
-    env = S['meta']['env'].replace('_', '-').capitalize()
-    fig.suptitle(f'{env}: does the belief make the policy act as it would with the true state?',
-                 x=0.01, ha='left', fontsize=11, weight='bold', color=TEXT)
-    fig.supxlabel('Action agreement: over all agent-steps of full episodes, how often the action taken from the '
-                  "agent's own observation\n(belief / particle filter / noisy view) equals the action the same "
-                  'policy takes from the true observation. Violins: 100 episode-bootstrap resamples.',
-                  fontsize=7.5, color=TEXT_2, x=0.01, ha='left')
-    fig.savefig(os.path.join(in_dir, 'actions.png'), dpi=200, facecolor=SURFACE)
-    plt.close(fig)
 
 
 def plot_centroid_map(S, in_dir, gridsize=70, min_count=20, methods=('allocentric', 'pf')):
@@ -402,66 +153,6 @@ def plot_centroid_map(S, in_dir, gridsize=70, min_count=20, methods=('allocentri
     plt.close(fig)
 
 
-def plot_ridgeline(S, in_dir, overlap=1.05):
-    """Ridgeline: one row per policy task eigenvector, one curve per method showing the
-    distribution of the raw belief error (estimate - truth) along that eigenvector."""
-    from scipy.stats import gaussian_kde
-    P = np.load(os.path.join(in_dir, 'projections.npz'))
-    meta = S['meta']
-    names = group_names(meta)
-    comp = composition(P)
-    eig = P['task_eig']
-    n = P['functionals'].shape[1]
-    errs = {m: P[f'{m}/belief'] - P[f'{m}/actual'] for m in RIDGE_METHODS}
-    allv = np.concatenate([e.ravel() for e in errs.values()])
-    lo, hi = np.percentile(allv, [1, 99])
-    half = max(abs(lo), abs(hi))
-    grid = np.linspace(-half, half, 400)
-    rng = np.random.default_rng(0)
-
-    fig, ax = plt.subplots(figsize=(11, 0.68 * n + 1.9), facecolor=SURFACE, layout='constrained')
-    ax.set_facecolor(SURFACE)
-    for side in ['top', 'right', 'left']:
-        ax.spines[side].set_visible(False)
-    ax.spines['bottom'].set_color('#c9c8c3')
-    ax.tick_params(colors=TEXT_2, labelsize=8)
-    ax.axvline(0, color=TEXT_2, linewidth=1, linestyle='--', zorder=10 * n + 5)
-    labels = []
-    for k in range(n):
-        base = (n - 1 - k) * RIDGE_STEP
-        dens, exact = {}, {}
-        for m in RIDGE_METHODS:
-            e = errs[m][:, k]
-            sample = e[rng.choice(len(e), size=min(20000, len(e)), replace=False)]
-            if np.ptp(sample) < 1e-9:  # exact estimate: all errors identical, no density to draw
-                exact[m] = float(sample[0])
-            else:
-                dens[m] = gaussian_kde(sample)(grid)
-        top = max((d.max() for d in dens.values()), default=1.0)
-        ridge_pair(ax, grid, {m: d / top for m, d in dens.items()}, exact, base, k)
-        short = {'fully_obs': 'FO', 'allocentric': 'Allo', 'pf': 'PF'}
-        rmse = '  '.join(f'{short[m]} {np.sqrt(np.mean(errs[m][:, k] ** 2)):.2f}' for m in RIDGE_METHODS)
-        labels.append((base, f'task dir {k + 1}  (σ² {eig[k]:.2f})\n{describe(comp, k, names)}\nRMSE  {rmse}'))
-    ax.set_yticks([b for b, _ in labels], [t for _, t in labels], fontsize=8)
-    ridge_axes(ax, n)
-    ax.set_xlim(-half, half)
-    ax.set_xlabel("raw belief error along the task eigenvector: estimate - truth (env units)", color=TEXT_2, fontsize=9)
-    handles = [plt.Rectangle((0, 0), 1, 1, color=COLORS[m], alpha=0.6) for m in RIDGE_METHODS]
-    ax.legend(handles, [LABELS[m] for m in RIDGE_METHODS], loc='upper right', ncol=3, frameon=False, fontsize=8.5,
-              labelcolor=TEXT)
-    env = meta['env'].replace('_', '-').capitalize()
-    fig.suptitle(f'{env}: belief error along each policy task eigenvector, {meta["title"]}',
-                 x=0.01, ha='left', fontsize=11, weight='bold', color=TEXT)
-    fig.supxlabel("Each row is one eigenvector of the policy task CCA (FO policy actions vs true state; strongest first), identical for every method. "
-                  "Curves: distribution of each belief's own estimate minus the truth, projected on that eigenvector\n"
-                  "(no fitting). Narrow and centred on 0 (dashed) = accurate; wide = noisy; shifted = biased. "
-                  "Curves scaled to the tallest in each row; x-range = 1st-99th percentile of all errors.\n"
-                  "An exact estimate (zero error, e.g. a noise-free observer) is drawn as a vertical line.",
-                  fontsize=7.5, color=TEXT_2, x=0.01, ha='left')
-    fig.savefig(os.path.join(in_dir, 'task_error_ridgeline.png'), dpi=200, facecolor=SURFACE)
-    plt.close(fig)
-
-
 def plot_r2_ridgeline(S, in_dir, overlap=1.05):
     """Ridgeline: one row per policy task eigenvector, one curve per method showing the distribution
     over episodes of the per-episode R^2 (raw estimate) along that eigenvector."""
@@ -472,8 +163,6 @@ def plot_r2_ridgeline(S, in_dir, overlap=1.05):
     E = np.load(path)
     P = np.load(os.path.join(in_dir, 'projections.npz'))
     meta = S['meta']
-    names = group_names(meta)
-    comp = composition(P)
     eig = P['task_eig']
     n = E[RIDGE_METHODS[0]].shape[1]
     allv = np.concatenate([E[m].ravel() for m in RIDGE_METHODS])
@@ -504,7 +193,7 @@ def plot_r2_ridgeline(S, in_dir, overlap=1.05):
         ridge_pair(ax, grid, {m: d / d.max() for m, d in dens.items()}, exact, base, k)  # each to its own peak
         short = {'fully_obs': 'FO', 'allocentric': 'Allo', 'pf': 'PF'}
         med = '  '.join(f'{short[m]} {np.median(E[m][:, k]):.2f}' for m in RIDGE_METHODS)
-        labels.append((base, f'task dir {k + 1}  (σ² {eig[k]:.2f})\n{describe(comp, k, names)}\nmedian R²  {med}'))
+        labels.append((base, f'task dir {k + 1}  (σ² {eig[k]:.2f})\nmedian R²  {med}'))
     ax.set_yticks([b for b, _ in labels], [t for _, t in labels], fontsize=8)
     ridge_axes(ax, n)
     ax.set_xlim(lo, 1.0)
@@ -512,25 +201,39 @@ def plot_r2_ridgeline(S, in_dir, overlap=1.05):
     handles = [plt.Rectangle((0, 0), 1, 1, color=COLORS[m], alpha=0.6) for m in RIDGE_METHODS]
     ax.legend(handles, [LABELS[m] for m in RIDGE_METHODS], loc='upper left', ncol=3, frameon=False, fontsize=8.5,
               labelcolor=TEXT)
-    env = meta['env'].replace('_', '-').capitalize()
-    fig.suptitle(f'{env}: per-episode R² along each policy task eigenvector, {meta["title"]}',
-                 x=0.01, ha='left', fontsize=11, weight='bold', color=TEXT)
-    fig.supxlabel("Each row is one eigenvector of the policy task CCA (FO policy actions vs true state; strongest first), identical for every method. "
-                  "Curves: distribution over episodes of R² = 1 - mean squared error in\nthe episode / variance of the "
-                  "truth over all episodes (raw estimate, no fitting). Right = better; wide = inconsistent across "
-                  f"episodes. Each curve scaled to its own peak. Values below {lo:.1f} are piled up at {lo:.1f};\nan identical R² in every episode "
-                  "is drawn as a vertical line.",
-                  fontsize=7.5, color=TEXT_2, x=0.01, ha='left')
+    short = {'allocentric': 'Aloc.', 'pf': 'Egoc.'}
+    # eigenvalue-weighted mean of the raw task R^2 (sum_k sigma_k^2 R_k^2 / sum_k sigma_k^2), as in the noise sweep
+    w = np.asarray(S['estimate']['task_eig'], dtype=float)
+    wr2 = ',  '.join(f"{short[m]} {float((w * np.asarray(S['estimate'][m]['raw']['task'])).sum() / w.sum()):.3f}"
+                     for m in RIDGE_METHODS)
+    steps = S.get('settings', {}).get('max_steps', 200)
+    window = f'   (first {steps} steps of each episode)' if steps < 200 else ''  # only when episodes were cut short
+    fig.suptitle(f'$R^2_w$:  {wr2}{window}', x=0.01, ha='left', fontsize=11, weight='bold', color=TEXT)
     fig.savefig(os.path.join(in_dir, 'task_ridgeline.png'), dpi=200, facecolor=SURFACE)
     plt.close(fig)
 
 
+def load_sweep(path):
+    """Sweep runs as {label: dict}: from a sweep.json (cca_analysis.py --sweep), or from a noise_sweep_results/
+    folder of one .npz per run (results/compact_noise_sweeps.py)."""
+    if os.path.isdir(path):
+        R = {}
+        for f in sorted(os.listdir(path)):
+            if f.endswith('.npz'):
+                d = np.load(os.path.join(path, f))
+                label = 'egocentric' if str(d['method']) == 'egocentric' else f"allocentric:{float(d['noise_level']):g}"
+                R[label] = dict(weighted_coverage=float(d['weighted_r2']), success_rate=float(d['success_rate']))
+        return R
+    return json.load(open(path))['runs']
+
+
 def plot_sweep(path):
     """Belief-noise sweep: weighted task R^2 (x) against success rate (y), in seaborn. Allocentric runs (labels
-    'allocentric:<sigma>') are blue and joined in order of sigma; the egocentric (PF) run is an orange dot."""
+    'allocentric:<sigma>') are blue and joined in order of sigma; the egocentric (PF) run is an orange dot.
+    path: sweep.json or a noise_sweep_results/ folder; the figure is written next to it as noise_sweep.png."""
     import pandas as pd
     import seaborn as sns
-    R = json.load(open(path))['runs']
+    R = load_sweep(path)
     rows = [dict(sigma=float(k.split(':')[1]) if k.startswith('allocentric') else np.nan,
                  method='allocentric' if k.startswith('allocentric') else 'egocentric',
                  weighted_r2=v['weighted_coverage'], success=v['success_rate']) for k, v in R.items()]
@@ -547,7 +250,55 @@ def plot_sweep(path):
     ax.set_ylabel('success rate')
     ax.set_ylim(-0.03, 1.03)
     ax.legend(title=None, frameon=False, loc='upper left')
-    out = os.path.join(os.path.dirname(path), 'noise_sweep.png')
+    out = os.path.join(os.path.dirname(path.rstrip('/')), 'noise_sweep.png')
+    fig.savefig(out, dpi=200)
+    plt.close(fig)
+    print(f'saved {out}')
+
+
+SWEEP_ENVS = {  # env label: (noise_sweep_results folder, color, marker)
+    'Predator-prey': (os.path.join(RESULTS_ROOT, 'predator_prey/noise_sweep/noise_sweep_results'), '#2a78d6', 'o'),
+    'Drone caravan': (os.path.join(RESULTS_ROOT, 'drones/noise_sweep/noise_sweep_results'), '#eb6834', 's'),
+    'Fire': (os.path.join(RESULTS_ROOT, 'fire/noise_sweep/noise_sweep_results'), '#1baf7a', '^'),
+    'Market': (os.path.join(RESULTS_ROOT, 'market_game/noise_sweep/noise_sweep_results'), '#8e4ec6', 'D'),
+    'Football': (os.path.join(RESULTS_ROOT, 'football/noise_sweep/noise_sweep_results'), '#d6336c', 'v'),
+}
+
+
+def logistic(x, lo, hi, k, x0):
+    return lo + (hi - lo) / (1 + np.exp(-k * (x - x0)))
+
+
+def fit_logistic(x, y):
+    """4-parameter logistic fit of success rate on R^2, asymptotes kept inside [0, 1]."""
+    from scipy.optimize import curve_fit
+    p0 = [max(y.min(), 0), min(y.max(), 1), 10.0, x[np.argmin(np.abs(y - (y.min() + y.max()) / 2))]]
+    p, _ = curve_fit(logistic, x, y, p0=p0, bounds=([0, 0, 0, -2], [1, 1, 200, 2]), maxfev=20000)
+    return p
+
+
+def plot_sweep_combined(out=os.path.join(RESULTS_ROOT, 'noise_sweep_combined.png'), envs=SWEEP_ENVS):
+    """Belief-noise sweeps of several envs on one axis: per env, a logistic fit of success rate against weighted
+    task R^2 over the allocentric noise levels, with those points on top (one color + marker per env)."""
+    import seaborn as sns
+    with sns.axes_style('whitegrid'):
+        fig, ax = plt.subplots(figsize=(8, 4.6), layout='constrained')
+    for name, (path, color, marker) in envs.items():
+        if not os.path.exists(path):
+            print(f'skipping {name}: {path} not found')
+            continue
+        R = load_sweep(path)
+        allo = np.array([(v['weighted_coverage'], v['success_rate']) for k, v in R.items() if k.startswith('allocentric')])
+        allo = allo[np.argsort(allo[:, 0])]
+        x, y = allo[:, 0], allo[:, 1]
+        p = fit_logistic(x, y)
+        xs = np.linspace(x.min(), x.max(), 300)
+        ax.plot(xs, logistic(xs, *p), color=color, linewidth=2.2, alpha=0.9, zorder=2)
+        ax.scatter(x, y, color=color, marker=marker, s=48 * (1.5 if marker in '^v' else 1), edgecolor='white', linewidth=0.8, zorder=3)
+    ax.set_xlabel('weighted task-direction R²')
+    ax.set_ylabel('success rate')
+    ax.set_ylim(-0.03, 1.03)
+    os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
     fig.savefig(out, dpi=200)
     plt.close(fig)
     print(f'saved {out}')
@@ -555,22 +306,22 @@ def plot_sweep(path):
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument('--sweep-combined', default=None, nargs='?', const=os.path.join(RESULTS_ROOT, 'noise_sweep_combined.png'),
+                   help='draw the combined noise sweep (predator-prey, drones, fire, market, football) to this path')
     p.add_argument('--in-dir', default=None)
-    p.add_argument('--sweep', default=None, help='sweep.json from cca_analysis.py --sweep: draw noise_sweep.png only')
+    p.add_argument('--sweep', default=None, help='sweep.json from cca_analysis.py --sweep, or a noise_sweep_results/ '
+                                                 'folder of per-level .npz files: draw noise_sweep.png only')
     args = p.parse_args()
+    if args.sweep_combined:
+        plot_sweep_combined(args.sweep_combined)
+        return
     if args.sweep:
         plot_sweep(args.sweep)
         return
     S = json.load(open(os.path.join(args.in_dir, 'summary.json')))
-    B = np.load(os.path.join(args.in_dir, 'bootstrap.npz'))
-    plot_main(S, B, os.path.join(args.in_dir, 'fixed_axis.png'))
-    plot_spectrum(S, B, os.path.join(args.in_dir, 'fixed_axis_spectrum.png'))
-    plot_pred_true(S, args.in_dir)
-    plot_actions(S, args.in_dir)
     plot_centroid_map(S, args.in_dir)
-    plot_ridgeline(S, args.in_dir)
     plot_r2_ridgeline(S, args.in_dir)
-    print(f'saved fixed_axis.png, fixed_axis_spectrum.png, pred_vs_true.png, actions.png, centroid_map.png, task_ridgeline.png, task_error_ridgeline.png in {args.in_dir}')
+    print(f'saved centroid_map.png, task_ridgeline.png in {args.in_dir}')
 
 
 if __name__ == '__main__':

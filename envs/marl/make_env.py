@@ -291,7 +291,9 @@ def make_football_env(
             obs_packaging_func=football_obs_packaging,
             eval=eval,
             belief_kwargs=belief_kwargs,
-            noise=config['env'].get('noise'),  # zero in every football config; the noise sweep sets noise.target
+            # applied in every run (until 2026-11-06 football never received it, so its fully observed runs and
+            # belief data were noise-free); 5a_game_collect.yaml (belief data) sets team (and ball) noise 0.03; 5a_game.yaml and the allocentric config 0
+            noise=config['env'].get('noise'),
         )
     elif wrap == 'pf':
         env = PFWrapper(

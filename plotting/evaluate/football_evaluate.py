@@ -9,18 +9,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from envs.marl.football_env import CirclePass5v1Env
-from overlay_plot_football import load_episode_positions, load_episode_beliefs
+from util.util import RESULTS_ROOT
+from loaders import load_football_positions as load_episode_positions, load_football_beliefs as load_episode_beliefs
+
+# bold text for every figure (set at import, so modules that import this one get it too)
+plt.rcParams['font.weight'] = 'bold'
+plt.rcParams['axes.titleweight'] = 'bold'
+plt.rcParams['axes.labelweight'] = 'bold'
 
 
-RESULTS_DIR = '/home/cameron/tells/logs/marl/football_fully_obs/checkpoint3000/results_allocentric'
-RESULTS_PF_DIR = '/home/cameron/tells/logs/marl/football_fully_obs/checkpoint3000/results_pf'
-BELIEF_ERROR_SAVE_PATH = '/home/cameron/tells/test_football_belief_error.png'
-DECOMPOSED_REWARD_SAVE_PATH = '/home/cameron/tells/test_football_decomposed_reward.png'
-ESTIMATE_VARIANCE_SAVE_PATH = '/home/cameron/tells/test_football_estimate_variance.png'
-COMBINED_SAVE_PATH = '/home/cameron/tells/test_football_combined_metrics.png'
+RESULTS_DIR = os.path.join(RESULTS_ROOT, 'football', 'results_allocentric')
+RESULTS_PF_DIR = os.path.join(RESULTS_ROOT, 'football', 'results_pf')
+BELIEF_ERROR_SAVE_PATH = os.path.join(RESULTS_ROOT, 'football', 'belief_error.png')
+DECOMPOSED_REWARD_SAVE_PATH = os.path.join(RESULTS_ROOT, 'football', 'decomposed_reward.png')
+ESTIMATE_VARIANCE_SAVE_PATH = os.path.join(RESULTS_ROOT, 'football', 'estimate_variance.png')
+COMBINED_SAVE_PATH = os.path.join(RESULTS_ROOT, 'football', 'combined_metrics.png')
 
 # mean decomposed reward over 500 controller-driven episodes
 # (evals/marl/collect_decomposed_rewards.py), with terminal oob/steal
@@ -32,7 +38,7 @@ MAX_STEP = 200
 
 # steps reached by fewer episodes than this are dropped from every plot -
 # late steps only a handful of long episodes reach are too noisy to read
-MIN_SAMPLES = 20
+MIN_SAMPLES = 5
 
 
 def list_episodes(results_dir: str):
@@ -86,7 +92,7 @@ def compute_decomposed_reward(obs_no_noise: dict, last_obs_no_noise: dict, rewar
 def belief_error_by_step(results_dir: str, episode: int) -> dict:
     '''
     load a single episode's eval results and, for each step, compute each
-    agent's individual belief error the same way overlay_plot_football
+    agent's individual belief error the same way loaders.load_football_beliefs
     does: reconstruct absolute ground-truth agent positions
     (load_episode_positions) and each observer's believed absolute position
     of its teammates (load_episode_beliefs), then take the position error

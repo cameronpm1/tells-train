@@ -16,7 +16,7 @@ alg:
   num_gpus: 0
   pi : [256, 256, 256]
   vf : [256, 256, 256]
-  timesteps: 3000
+  timesteps: 829
   checkpoint_freq: 250
   minibatch_size: 512
   num_epochs: 3

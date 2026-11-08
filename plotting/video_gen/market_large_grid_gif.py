@@ -10,17 +10,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from envs.marl.make_env import make_marl_env
 from learn.marl.train import make_ray_config
 from controllers.market_game_large_control import compute_market_actions
-from evals.marl.predator_prey_grid_gif import GAP, OUTLINE, compose_grid
-from evals.marl.market_grid_gif import (
+from plotting.video_gen.predator_prey_grid_gif import GAP, OUTLINE, compose_grid
+from plotting.video_gen.market_grid_gif import (
     TileRenderer, draw_line_legend, run_episode, save_gif_shared_palette, search_seeds,
 )
-from util.util import load_config
+from util.util import load_config, MODELS_ROOT
 
 
-CHECKPOINT_DIR = 'logs/marl/market_game_large_60a_fully_obs/checkpoint250'
+CHECKPOINT_DIR = os.path.join(MODELS_ROOT, 'marl', 'market_game_large_fully_obs/checkpoint250')
 BELIEF_CONFIG = 'confs/belief/market_game_large.yaml'
 # snapshot of the label-1 belief model taken when results_allocentric was evaluated
-BELIEF_DIR = 'logs/belief/_market_game_large_60a_fully_obs_market_game_large_NN_1_frozen/epoch3500'
+BELIEF_DIR = os.path.join(MODELS_ROOT, 'belief', '_market_game_large_fully_obs_NN_1/epoch3500')
 # fully observable and allocentric were both evaluated with 60a_game.yaml (the belief wrapper
 # turns off the team noise); the centralized controller uses it too
 CONFIG = 'confs/market_game_large/60a_game.yaml'

@@ -10,7 +10,7 @@ belief_maps.png       local R^2 of the belief's (a) centroid over the true centr
 
 Usage:
     python plotting/predator_prey_swarm_figures.py
-    python plotting/predator_prey_swarm_figures.py --results <checkpoint>/results_allocentric --out-dir <dir>
+    python plotting/predator_prey_swarm_figures.py --results results/predator_prey_swarm/results_allocentric --out-dir <dir>
 """
 import argparse
 import glob
@@ -26,17 +26,19 @@ import yaml
 from matplotlib.patches import Arc, Ellipse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'evaluate'))
 
 from envs.marl.predator_prey_swarm_env import PredatorPreySwarmEnv
 from plot_cca_analysis import BLUE_RAMP, COLORS, FLOOR, GRID, SURFACE, TEXT, TEXT_2, style
 
 _rc = plt.rcParams.copy()
+from util.util import find_run_config, RESULTS_ROOT
 from predator_prey_evaluate import _draw_average_with_std, _set_endpoint_yticks  # its import sets bold text globally
 plt.rcParams.update(_rc)
 BOLD = {'font.weight': 'bold', 'axes.titleweight': 'bold', 'axes.labelweight': 'bold'}
 
-RESULTS_DIR = '/home/cameron/tells/logs/marl/predator_prey_swarm_40a_fully_obs/checkpoint250/results_allocentric'
-OUT_DIR = '/home/cameron/tells/results/predator_prey_swarm/figures'
+RESULTS_DIR = os.path.join(RESULTS_ROOT, 'predator_prey_swarm', 'results_allocentric')
+OUT_DIR = os.path.join(RESULTS_ROOT, 'predator_prey_swarm', 'figures')
 
 # mean decomposed reward of the scripted swarm controller over 200 40-agent episodes, terminal
 # success / oob steps left out as in decomposed_reward_by_step
@@ -57,7 +59,7 @@ def angle_error(a, b):
 
 
 def run_config(results_dir):
-    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.normpath(results_dir))), 'config.yaml')) as f:
+    with open(find_run_config(results_dir)) as f:
         return yaml.safe_load(f)
 
 

@@ -11,14 +11,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from envs.marl.make_env import make_marl_env
 from learn.marl.train import make_ray_config, marl_policy_mapping_fn
 from controllers.football_control import compute_rondo_actions
-from evals.marl.predator_prey_grid_gif import COLUMNS, CROP_COLUMNS, compose_grid
-from evals.marl.drones_grid_gif import reset_pf_bookkeeping
-from util.util import load_config, save_rgb_gif
+from plotting.video_gen.predator_prey_grid_gif import COLUMNS, CROP_COLUMNS, compose_grid
+from plotting.video_gen.drones_grid_gif import reset_pf_bookkeeping
+from util.util import load_config, save_rgb_gif, MODELS_ROOT
 
 
-CHECKPOINT_DIR = 'logs/marl/football_fully_obs/checkpoint3000'
+CHECKPOINT_DIR = os.path.join(MODELS_ROOT, 'marl', 'football_fully_obs/checkpoint3000')
 BELIEF_CONFIG = 'confs/belief/football.yaml'
-BELIEF_DIR = 'logs/belief/_football_fully_obs_football_NN/lightning_logs/checkpoints/{epoch}_{val_loss}'
+BELIEF_DIR = os.path.join(MODELS_ROOT, 'belief', '_football_fully_obs_NN_1/epoch1026')
 # each column uses the config its reported results were evaluated with; the centralized
 # controller uses the fully observable one
 FULLY_OBS_CONFIG = 'confs/football/5a_game.yaml'
@@ -140,15 +140,32 @@ def search_seeds(env, algo, n_search, n_rows):
     return seeds, {s: results[s] for s in seeds}
 
 
-def view_bounds(rows):
+def interpolate_frames(frames, n):
     '''
-    one square view shared by every tile, just large enough that every player and the ball in
-    CROP_COLUMNS stay in view for the whole episode, in every row
+    n - 1 linearly blended snapshots between each pair of consecutive steps (positions, directions, ball), for
+    smooth slow motion; player roles are categorical and are kept from the earlier step
+    '''
+    if n <= 1 or len(frames) < 2:
+        return frames
+    out = []
+    for a, b in zip(frames[:-1], frames[1:]):
+        for k in range(n):
+            w = k / n
+            out.append({key: a[key] if key.endswith('roles') else (1 - w) * a[key] + w * b[key] for key in a})
+    out.append(frames[-1])
+    return out
+
+
+def view_bounds(rows, scale=1.0):
+    '''
+    one square view shared by every tile, framing the 1st-99th percentile of every player and ball position in
+    CROP_COLUMNS over the whole episode, in every row: a rare excursion (e.g. an episode ending out of play)
+    briefly leaves the frame instead of zooming the whole grid out
     '''
     pts = np.concatenate([r[c]['positions'].reshape(-1, 2) for r in rows for c in CROP_COLUMNS])
-    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    lo, hi = np.percentile(pts, 1, axis=0), np.percentile(pts, 99, axis=0)
     center = (lo + hi) / 2
-    half = np.max(hi - lo) / 2 + CROP_MARGIN
+    half = (np.max(hi - lo) / 2 + CROP_MARGIN) * scale  # scale < 1 zooms in
     print(f'view: center ({center[0]:.3f}, {center[1]:.3f}), half-width {half:.3f}')
     return (center[0] - half, center[0] + half, center[1] - half, center[1] + half)
 
@@ -163,7 +180,23 @@ def main():
     parser.add_argument('--save_path', type=str, default='football_grid.gif')
     parser.add_argument('--scale', type=float, default=0.5, help='tile size as a fraction of the 700px render')
     parser.add_argument('--fps', type=int, default=10)
+    parser.add_argument('--view-scale', type=float, default=1.0,
+                        help='shrink (<1, zoom in) or grow the shared view around the players')
+    parser.add_argument('--interp', type=int, default=1,
+                        help='frames per simulation step (in-between frames are interpolated); playback speed is '
+                             'fps / interp steps per second')
+    parser.add_argument('--episodes-cache', type=str, default=None,
+                        help='pickle of the simulated episodes: loaded if it exists (no simulation; the engine is not '
+                             'deterministic, so this keeps the same games across re-renders), else written')
     args = parser.parse_args()
+
+    if args.episodes_cache and os.path.exists(args.episodes_cache):
+        import pickle
+        with open(args.episodes_cache, 'rb') as f:
+            rows = pickle.load(f)
+        print(f'loaded {len(rows)} rows of episodes from {args.episodes_cache}')
+        render_grid(rows, args)
+        return
 
     import ray
     ray.init(num_cpus=4, include_dashboard=False, log_to_driver=False)
@@ -196,9 +229,19 @@ def main():
             assert np.allclose(row[c]['start_state'], ref), f'{c} did not start from the same state as {COLUMNS[0]}'
         rows.append(row)
 
-    bounds = view_bounds(rows)
+    if args.episodes_cache:
+        import pickle
+        with open(args.episodes_cache, 'wb') as f:
+            pickle.dump([{c: {'frames': r[c]['frames'], 'positions': r[c]['positions']} for c in r} for r in rows], f)
+    render_grid(rows, args)
+
+
+def render_grid(rows, args):
+    from envs.marl.football_env import CirclePass5v1Env
+    bounds = view_bounds(rows, args.view_scale)
     side = int(round(RENDER_SIZE * args.scale))
-    renderer = envs['Centralized'].env
+    renderer = CirclePass5v1Env.__new__(CirclePass5v1Env)  # render_rgb only reads raw_obs: no engine needed
+    rows = [{c: {**r[c], 'frames': interpolate_frames(r[c]['frames'], args.interp)} for c in r} for r in rows]
 
     def tile_fn(snap):
         renderer.raw_obs = [snap]

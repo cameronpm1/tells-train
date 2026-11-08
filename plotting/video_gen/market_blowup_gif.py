@@ -10,8 +10,8 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import evals.marl.market_grid_gif as grid
-from evals.marl.predator_prey_grid_gif import COLUMNS
+import plotting.video_gen.market_grid_gif as grid
+from plotting.video_gen.predator_prey_grid_gif import COLUMNS
 from learn.marl.train import make_ray_config
 
 

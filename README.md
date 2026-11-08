@@ -3,6 +3,23 @@
 ## Overview
 This repository provides a training environment for collaborative multi-agent behavior in communications-denied environments.
 
+## Repository Layout
+This repository is the code half of the `tells_results` folder. Clone it into `tells_results/tells-train`; the
+results, models, videos and run scripts sit next to it:
+
+```
+tells_results/
+├── tells-train/      this repository: run.py, confs/, envs/, learn/, evals/, plotting/, util/ (+ data/, logs/, git-ignored)
+├── scripts/          bash pipelines: train_<env>.sh, collect_eval_data.sh, analyze_env.sh, noise_sweep_{run,plot}.sh
+├── models/           marl/<run>/checkpoint<N>/ policies, belief/_<run>_NN_<i>/epoch<N>/ belief models
+├── results/          <env>/results_{fully_obs,allocentric,pf}/, cca/, noise_sweep/, controller_results/
+└── videos/           supplementary grid GIFs / MP4s
+```
+
+The analysis and plotting code finds `results/` and `models/` through `util/util.py` (`RESULTS_ROOT`, `MODELS_ROOT`),
+which default to the folder above this repository; set `TELLS_RESULTS=/path/to/tells_results` to point them elsewhere.
+Paths inside `confs/` (`logdir`, `data_dir`, `log_dir`) are relative to this repository, so run everything from here.
+
 ## Current Support
 - MARL (Multi-Agent Reinforcement Learning) codebase
 - Uses RLlib with Soft Actor-Critic (SAC) or PPO for training
@@ -158,7 +175,7 @@ python run.py --command marl_train_belief --belief_dir logs/belief/predator_prey
 
 - retrains the fully-observable RL policy in the communication denied environment using the belief model. Adds variational free energy loss term. Pay attention to config files! Retraining requires a config with `allocentric` in its name. You must use the same config file when evaluating the trained model with `--command marl_train_belief`
 
-## Adversarial Environments
+## Environments
 - `PredatorPreyScenario` is based on openai's mpe environemnt:
 
   - Several layers of classes:
@@ -183,6 +200,25 @@ python run.py --command marl_train_belief --belief_dir logs/belief/predator_prey
       └── DroneFireSim
   ```
 
+- `MarketGameEnv` custom gym environment for market coordination game
+
+  - Companies buy material from a scripted supplier and sell product to meet demand
+
+- `MarketGameLargeEnv` scaled version of `MarketGameEnv` with 60 companies
+
+  - Teammates are observed through quantiles of their stockpiles
+
+- `PredatorPreySwarmEnv` scaled version of `PredatorPreyEnv` with 40 predators
+
+  - Teammates are observed through the swarm's covariance ellipse
+
+  - Several layers of classes:
+  ```
+  PredatorPreySwarmEnv (Gym Environment)
+      └── SwarmScenarioEnv
+              └── PredatorPreySwarmScenario
+  ```
+
 ### RLlib Integration
 - All environments are wrapped with:
   ```
@@ -201,16 +237,10 @@ python run.py --command marl_train_belief --belief_dir logs/belief/predator_prey
 
 ## Testing Baselines
 
-### Train Particle Filter
+### Evaluate Egocentric Estimator
 
 ```bash
-python run.py --command pf_train --config confs/predator_prey/3a_game_pf.yaml
-```
-
----
-
-```bash
-python run.py --command pf_eval --model_dir logs/marl/predator_prey_pf/checkpoint2000 --config confs/predator_prey/3a_game_pf.yaml
+python run.py --command ego_eval --model_dir logs/marl/predator_prey_pf/checkpoint2000 --config confs/predator_prey/3a_game_pf.yaml
 ```
 
 ---

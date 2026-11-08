@@ -124,7 +124,13 @@ def data_worker(
 
     if checkpoint_dir is not None:
         checkpoint_dir = os.path.abspath(checkpoint_dir)
-        algo_config = make_ray_config(cfg)
+        # each worker only runs the policy locally: a small Ray instance (by default Ray sizes itself to every CPU
+        # and pre-starts a worker process per CPU, ~200 processes per collection worker) and no env runners,
+        # as in evals/marl/eval.py
+        import ray
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, include_dashboard=False, log_to_driver=False)
+        algo_config = make_ray_config({**cfg, 'alg': {**cfg['alg'], 'nenvs': 0}})
         algo = algo_config.build_algo()
         algo.restore(checkpoint_dir)
     else:

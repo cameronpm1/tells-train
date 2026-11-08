@@ -16,15 +16,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from envs.marl.make_env import make_marl_env
 from learn.marl.train import make_ray_config, marl_policy_mapping_fn
 from controllers.market_game_control import compute_market_actions
-from evals.marl.predator_prey_grid_gif import COLUMNS, FONT_PATH, GAP, OUTLINE, compose_grid, text_size
-from evals.marl.drones_grid_gif import reset_pf_bookkeeping
-from util.util import load_config
+from plotting.video_gen.predator_prey_grid_gif import COLUMNS, FONT_PATH, GAP, OUTLINE, compose_grid, text_size
+from plotting.video_gen.drones_grid_gif import reset_pf_bookkeeping
+from util.util import load_config, MODELS_ROOT
 
 
-CHECKPOINT_DIR = 'logs/marl/market_game_7a_fully_obs/checkpoint829'
+CHECKPOINT_DIR = os.path.join(MODELS_ROOT, 'marl', 'market_game_fully_obs/checkpoint829')
 BELIEF_CONFIG = 'confs/belief/market_game.yaml'
 # snapshot of the label-2 belief model taken before results_allocentric was evaluated
-BELIEF_DIR = 'logs/belief/_market_game_7a_fully_obs_market_game_NN_2_frozen/epoch989'
+BELIEF_DIR = os.path.join(MODELS_ROOT, 'belief', '_market_game_fully_obs_NN_1/epoch989')
 # fully observable and allocentric were both evaluated with 7a_game.yaml (the belief wrapper
 # turns off the team noise); the centralized controller uses it too
 FULLY_OBS_CONFIG = 'confs/market_game/7a_game.yaml'

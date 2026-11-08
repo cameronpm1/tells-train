@@ -12,14 +12,14 @@ from envs.marl.make_env import make_marl_env
 from envs.marl.fire_env import GRID_SIZE, DroneFireSim, render_fire_frame
 from learn.marl.train import make_ray_config, marl_policy_mapping_fn
 from controllers.fire_control import extinguish_controller
-from evals.marl.predator_prey_grid_gif import COLUMNS, CROP_COLUMNS, compose_grid
-from evals.marl.drones_grid_gif import reset_pf_bookkeeping
-from util.util import load_config, save_rgb_gif
+from plotting.video_gen.predator_prey_grid_gif import COLUMNS, CROP_COLUMNS, compose_grid
+from plotting.video_gen.drones_grid_gif import reset_pf_bookkeeping
+from util.util import load_config, save_rgb_gif, MODELS_ROOT
 
 
-CHECKPOINT_DIR = 'logs/marl/fire_fully_obs/checkpoint5000'
+CHECKPOINT_DIR = os.path.join(MODELS_ROOT, 'marl', 'fire_fully_obs/checkpoint5000')
 BELIEF_CONFIG = 'confs/belief/fire.yaml'
-BELIEF_DIR = 'logs/belief/_fire_fully_obs_fire_NN/lightning_logs/checkpoints/{epoch}_{val_loss}'
+BELIEF_DIR = os.path.join(MODELS_ROOT, 'belief', '_fire_fully_obs_NN_1/epoch199')
 # each column uses the config its reported results were evaluated with; the centralized
 # controller uses the fully observable one
 FULLY_OBS_CONFIG = 'confs/fire/4a_game.yaml'
