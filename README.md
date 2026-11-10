@@ -1,5 +1,7 @@
 # Multi-Agent Training Environment (Communications-Denied Scenarios)
 
+All experiments were run with Python 3.11.15 on Ubuntu 24.04.2 LTS.
+
 ## Overview
 This repository provides a training environment for collaborative multi-agent behavior in communications-denied environments.
 
@@ -116,7 +118,10 @@ python run.py --command marl_eval --config confs/predator_prey/3a_game.yaml --mo
 ```
 - Evaluates a trained checkpoint for a specified number of runs  
 - Generates video outputs  
-- Saves videos in a `video/` folder inside the checkpoint directory  
+- Saves videos in a `videos/` folder inside the checkpoint directory (`--no_eval_videos` skips them)  
+- `--collect_results` saves each episode's data as a `.npz` file in a `results/` folder inside the checkpoint directory, which the analysis code reads  
+- The same flags work with `marl_eval_belief`, which saves to `videos_allocentric/` and `results_allocentric/` (a `results_suffix` in the config is added to both names), and with `ego_eval`, which saves its results to `results_pf/`  
+- Running an evaluation clears its output folders first, so a rerun replaces earlier results and videos  
 
 ---
 
@@ -161,7 +166,7 @@ python run.py --command belief_train --config confs/belief/predator_prey.yaml
 python run.py --command marl_eval_belief --belief_dir logs/belief/predator_prey_belief/lightning_logs/checkpoints/{epoch}_{val_loss} --belief_config confs/belief/pre.yaml --config confs/predator_prey/3a_game.yaml --model_dir logs/marl/ppo_bc_ex/checkpoint4500/
 ```
 
-- This will create a directory called test_outputs inside the model_dir and save several test videos to it. In order to edit how the videos are created/saved look at .test_save() inside the belief model class
+- This will create a directory called videos_allocentric inside the model_dir and save several test videos to it. In order to edit how the videos are created/saved look at .test_save() inside the belief model class
 
 ---
 

@@ -1,0 +1,9 @@
+name: tells
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - boost=1.85
+  - boost-cpp=1.85
+  - libboost-python-devel=1.85
+  - cmake<4

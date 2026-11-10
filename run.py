@@ -1,6 +1,8 @@
 import os
 import json
 import argparse
+import getpass
+import tempfile
 
 
 def repo_root():
@@ -12,7 +14,8 @@ def default_ray_base_dir():
         value = os.environ.get(env_name)
         if value:
             return os.path.join(value, 'tells_ray')
-    return os.path.join(repo_root(), '.ray')
+    # not inside the repo: Ray's socket paths must fit in 107 characters, wherever the repo is cloned
+    return os.path.join(tempfile.gettempdir(), f'tells_ray_{getpass.getuser()}')
 
 
 def set_torch_threads(args):

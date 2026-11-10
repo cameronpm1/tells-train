@@ -45,7 +45,7 @@ env:
   belief: false
   render_mode: rgb_array
   noise:
-    team: [0.6, 0.6, 0.4, 0.2, 0.3]
+    team: 0.1
     target: 0.0
   scenario_kwargs:
     base_speed: 1.2
